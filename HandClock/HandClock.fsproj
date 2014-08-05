@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Project xsi:noNamespaceSchemaLocation="Project.xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+	<Version current="1"/>
+	<Format>Project</Format>
+	<Header>
+		<Program name="TopoR" version="6.0"/>
+		<GUID>{6153152D-8FD3-4296-B1D2-561096EE3F3D}</GUID>
+		<Annotation>Project file</Annotation>
+	</Header>
+	<Document>
+		<LocalLibrary />
+		<Pcb>
+			<File path=".\clock.fsx" Folder="-1" isopened="0"/>
+			<File path="E:\Work\Hardware\hand_clock\HandClock\clock1.fsx" Folder="-1" isopened="0"/>
+			<File path="E:\Work\Hardware\hand_clock\HandClock\clock2.fsx" Folder="-1" isopened="0"/>
+			<File path="E:\Work\Hardware\hand_clock\HandClock\clock3.fsx" Folder="-1" isopened="0"/>
+			<File path="E:\Work\Hardware\hand_clock\HandClock\clock4.fsx" Folder="-1" isopened="0"/>
+			<File path="E:\Work\Hardware\hand_clock\HandClock\clock5.fsx" Folder="-1" isopened="0"/>
+			<File path="E:\Work\Hardware\hand_clock\HandClock\clock6.fsx" Folder="-1" isopened="0"/>
+			<File path="E:\Work\Hardware\hand_clock\HandClock\clock7.fsx" Folder="-1" isopened="0"/>
+			<File path="E:\Work\Hardware\hand_clock\HandClock\clock8.fsx" Folder="-1" isopened="0"/>
+			<File path="E:\Work\Hardware\hand_clock\HandClock\clock9.fsx" Folder="-1" isopened="1"/>
+		</Pcb>
+		<Documents path="E:\Work\Hardware\hand_clock\HandClock\"/>
+		<Import>
+			<Specctra>
+			<Path name="E:\Work\Hardware\hand_clock\clock.dsn"/>
+			</Specctra>
+		</Import>
+		<ARouteSessions>
+			<Session name="clock1" date="2014-07-11 11:08:24" path=".\autoroute_clock1_140711110824\">
+			<File path=".\autoroute_clock1_140711110824\clock1_360-0sa.fsb" Folder="-1" isopened="0"/>
+			</Session>
+			<Session name="clock1" date="2014-07-11 11:15:27" path=".\autoroute_clock1_140711111527\">
+			<File path=".\autoroute_clock1_140711111527\clock1_444-2sa.fsb" Folder="-1" isopened="0"/>
+			</Session>
+			<Session name="clock1" date="2014-07-11 11:17:23" path=".\autoroute_clock1_140711111723\">
+			<File path=".\autoroute_clock1_140711111723\clock1_470-0sa.fsb" Folder="-1" isopened="0"/>
+			</Session>
+			<Session name="clock5" date="2014-07-11 12:16:34" path=".\autoroute_clock5_140711121634\">
+			<File path=".\autoroute_clock5_140711121634\clock5_557-0sa.fsb" Folder="-1" isopened="0"/>
+			</Session>
+			<Session name="clock5" date="2014-07-11 12:18:55" path=".\autoroute_clock5_140711121855\">
+			<File path=".\autoroute_clock5_140711121855\clock5_548-0sa.fsb" Folder="-1" isopened="0"/>
+			</Session>
+		</ARouteSessions>
+	</Document>
+</Project>

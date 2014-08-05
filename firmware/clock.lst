@@ -1,0 +1,2512 @@
+
+AVRASM ver. 2.1.42  F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm Tue Aug 05 11:01:00 2014
+
+F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm(20): Including file 'C:\Program Files\Atmel\AVR Tools\AvrAssembler2\Appnotes\m48PAdef.inc'
+F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm(23): Including file 'F:\Work\Hardware\HAND_CLOCK\firmware\definitions.inc'
+F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm(58): Including file 'F:\Work\Hardware\HAND_CLOCK\firmware\init.inc'
+F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm(767): Including file 'F:\Work\Hardware\HAND_CLOCK\firmware\Sie_c60.inc'
+F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm(771): Including file 'F:\Work\Hardware\HAND_CLOCK\firmware\CP866.inc'
+                 
+                 
+                 ; TODO
+                 ; 2. Продумать RLE для экономии места во Flash и возможности рисования спрайтов
+                 
+                 
+                 ;#define DEBUG
+                 
+                 ; Для себя:
+                 ; Регистры GPIORx
+                 ; GPIOR0.0 - флаг переноса BCD
+                 ; GPIOR0.1 - используется как вспомогательный флаг при опросе клавиатуры
+                 ; GPIOR0.2 - устанавливается в 1 каждую десятую долю секунды
+                 ; GPIOR0.3 - ...каждую секунду
+                 ; GPIOR0.4 - ...минуту
+                 ; GPIOR0.5 - ...час
+                 ; GPIOR0.6 - ...день
+                 ; GPIOR0.7 - ...месяц
+                 
+                 .list
+                 
+                 .include "definitions.inc"
+                 
+                 
+                 ;------- Константы
+                 .equ num_mode = 0x02
+                 .equ sec_part = 8
+                 .equ OCR2A_val = 128
+                 .equ TimCntVal = 32
+                 ;-------
+                 
+                 ;------- Определения
+                 .def lcd_X = r2	; Текущие координаты
+                 .def lcd_Y = r3
+                 .def bkg_color = r4 ; Цвета фона и текста
+                 .def frg_color = r5
+                 .def lcd_mx = r6	; множители масштабирования
+                 .def lcd_my = r7
+                 
+                 .def kbd = r8	; Битовая маска нажатых кнопок
+                 .def kbd_prev = r12	; Битовая маска нажатых кнопок предыдущего такта
+                 .def kbd_press = r13 ; Нажатые кнопки (из 1 в 0)
+                 .def kbd_release = r14 ; Отпущенные кнопки (из 1 в 0)
+                 
+                 .def sec_part_cnt = r10
+                 
+                 .def led_timer=r9	; Таймер подсветки (0.1 секундные интерваллы)
+                 .def mode=r19	; Режим работы: 0 - часы (отображение даты-времени), 1 - настройка даты, времени,
+                 				; грубой и точной коррекции часов, 2 - калибровка от внешнего источника, 3 - таймер
+                 .def mode_tmp=r24 ; Для режима 1 - здесь хранится текущий редактируемый параметр (час, минута, секунда и т.д.)
+                 				  ; 0 - час, 1 - минута, 2 - секунда, 3 - число, 4 - день недели, 5 - месяц, 6 - год (пока так)
+                 
+                 .def tmp=r16	; Temp
+                 .def tmp1=r17
+                 .def tmp2=r18
+                 ;-------
+                 
+                 ;------- Макросы
+                 .macro CS_LOW
+                 	cbi PORTB, 1
+                 	nop
+                 .endm
+                 .macro CS_HIGH
+                 	sbi PORTB, 1
+                 	nop
+                 .endm
+                 .macro LED_ON
+                 	sbi PORTC, 1
+                 	nop
+                 .endm
+                 .macro LED_OFF
+                 	cbi PORTC, 1
+                 	nop
+                 .endm
+                 .macro CMD_SET
+                 	cbi PORTB, 0
+                 	nop
+                 .endm
+                 .macro DATA_SET
+                 	sbi PORTB, 0
+                 	nop
+                 .endm
+                 .macro LCD_RESET_LOW
+                 	cbi PORTC, 0
+                 	nop
+                 .endm
+                 .macro LCD_RESET_HIGH
+                 	sbi PORTC, 0
+                 	nop
+                 .endm
+                 .macro LAPZ
+                 	ldi ZH, high(@0 << 1)
+                 	ldi ZL, low(@0 << 1)
+                 .endm
+                 .macro LAPX
+                 	ldi XH, high(@0 << 1)
+                 	ldi XL, low(@0 << 1)
+                 .endm
+                 .macro LAPY
+                 	ldi YH, high(@0 << 1)
+                 	ldi YL, low(@0 << 1)
+                 .endm
+                 .macro LASZ
+                 	ldi ZH, high(@0)
+                 	ldi ZL, low(@0)
+                 .endm
+                 .macro LASX
+                 	ldi XH, high(@0)
+                 	ldi XL, low(@0)
+                 .endm
+                 .macro LASY
+                 	ldi YH, high(@0)
+                 	ldi YL, low(@0)
+                 .endm
+                 ;-------
+                 
+                 .cseg ; Сегмент кода
+                 .org 0
+                 
+000000 c019      rjmp Start
+                 ; Прерывания
+000001 c170      rjmp INT0r
+000002 c16f      rjmp INT1r
+000003 c16e      rjmp PCINT0r
+000004 c16d      rjmp PCINT1r
+000005 c16c      rjmp PCINT2r
+000006 c16b      rjmp WDT
+000007 c174      rjmp T2_COMPA
+000008 c169      rjmp T2_COMPB
+000009 c168      rjmp T2_OVF
+00000a c167      rjmp T1_CAPT
+00000b c166      rjmp T1_COMPA
+00000c c165      rjmp T1_COMPB
+00000d c164      rjmp T1_OVF
+00000e c163      rjmp T0_COMPA
+00000f c162      rjmp T0_COMPB
+000010 c161      rjmp T0_OVF
+000011 c160      rjmp SPI_STC
+000012 c15f      rjmp USART_RX
+000013 c15e      rjmp USART_UDRE
+000014 c15d      rjmp USART_TX
+000015 c15c      rjmp AnalogDC
+000016 c15b      rjmp EE_RDY
+000017 c15a      rjmp AnalogCMP
+000018 c159      rjmp TWI
+000019 c158      rjmp SPM_RDY
+                 
+                 Start:
+                 
+                 .include "init.inc"
+                 
+00001a 94f8      	cli
+                 ;-------- Инициализация стека
+00001b e002          ldi tmp, high(RAMEND)
+00001c bf0e          out SPH,tmp
+00001d ef0f          ldi tmp, low(RAMEND)
+00001e bf0d          out SPL,tmp
+                 ;-------- Отключение Watchdog
+00001f 95a8      	wdr
+000020 2700      	clr tmp
+000021 9300 0060 	sts WDTCSR, tmp
+                 ;-------- Настраиваем асинхронный таймер
+000023 e200      	ldi tmp,0b00100000	; Устанавливаем 32кГц источник для TCount2
+000024 9300 00b6 	sts ASSR, tmp
+                 	
+000026 e002      	ldi tmp,0b00000010		; TCount2 вызывает прерывание при сравнении с OCR2A
+000027 9300 0070 	sts TIMSK2, tmp
+                 
+000029 e800      	ldi tmp, OCR2A_val
+00002a 9300 00b3 	sts OCR2A, tmp		; Каждые 4.9 мс (примерно)
+                 wl2:
+00002c 9100 00b6 	lds tmp, ASSR
+00002e fd03      	sbrc tmp, OCR2AUB
+00002f cffc      	rjmp wl2
+                 
+000030 e001      	ldi tmp, 0x01		; TCount2 работает на частоте 32768 Гц
+000031 9300 00b1 	sts TCCR2B, tmp
+                 wl0:
+000033 9100 00b6 	lds tmp, ASSR		; Ждем, пока будет обновлен TCCR2B
+000035 fd00      	sbrc tmp, TCR2BUB
+000036 cffc      	rjmp wl0
+                 
+000037 e002      	ldi tmp, 0b00000010	; Режим CTC
+000038 9300 00b0 	sts TCCR2A, tmp
+                 wl1:
+00003a 9100 00b6 	lds tmp, ASSR
+00003c fd01      	sbrc tmp, TCR2AUB			; Ждем, пока будет обновлен TCCR2A
+00003d cffc      	rjmp wl1
+                 ;-------- Отключаем не используемые модули (TWI, Timer0, Timer1, USART, ADC)
+00003e ea0b      	ldi tmp, 0b10101011
+00003f 9300 0064 	sts PRR, tmp
+                 ;-------- Настраиваем sleep режим (Power-save mode)
+000041 e007      	ldi tmp, 0b00000111
+000042 bf03      	out SMCR, tmp
+                 ;-------- Настраиваем порты
+000043 e003      	ldi tmp, 0b00000011	; PORTC - подтяжки включены, PC0, PC1 - на выход
+000044 b907      	out DDRC, tmp
+000045 e70d      	ldi tmp, 0b01111101
+000046 b908      	out PORTC, tmp
+                 
+000047 e20b      	ldi tmp, 0b00101011
+000048 b904      	out DDRB, tmp
+000049 ed07      	ldi tmp, 0b11010111
+00004a b905      	out PORTB, tmp
+                 
+00004b e00c      	ldi tmp, 0b00001100
+00004c b90a      	out DDRD, tmp
+00004d ef07      	ldi tmp, 0b11110111
+00004e b90b      	out PORTD, tmp
+                 ;-------- Настраиваем SPI
+00004f e500      	ldi tmp, 0b01010000	; Скорость fsck/2, режим 00, мастер
+000050 bd0c      	out SPCR, tmp
+000051 e001      	ldi tmp, 0x01
+000052 bd0d      	out SPSR, tmp
+000053 b50d      	in tmp, SPSR
+000054 b50e      	in tmp, SPDR
+                 ;-------- Настраиваем MCUCR
+000055 e000      	ldi tmp, 0x00
+000056 bf05      	out MCUCR, tmp
+                 ;-------- Настраиваем EEPROM
+000057 e000      	ldi tmp, 0x00
+000058 bb0f      	out EECR, tmp
+                 ;-------- Инициализируем регистры
+000059 2733      	clr mode
+00005a 2788      	clr mode_tmp
+00005b 24aa      	clr sec_part_cnt
+00005c 2700      	clr r16
+00005d 2711      	clr r17
+00005e 2722      	clr r18
+00005f 2733      	clr r19
+000060 2744      	clr r20
+000061 2755      	clr r21
+000062 2766      	clr r22
+000063 2777      	clr r23
+000064 2788      	clr r24
+000065 2799      	clr r25
+000066 27aa      	clr r26
+000067 27bb      	clr r27
+000068 27cc      	clr r28
+000069 27dd      	clr r29
+00006a 27ee      	clr r30
+00006b 27ff      	clr r31
+00006c e30f      	ldi tmp, 0b00111111
+00006d 2e80      	mov kbd, tmp
+00006e 2ec0      	mov kbd_prev, tmp
+00006f 2ed0      	mov kbd_press, tmp
+000070 2ee0      	mov kbd_release, tmp
+000071 e000      	ldi tmp, 0x00
+000072 bb0e      	out GPIOR0, tmp
+000073 bd0a      	out GPIOR1, tmp
+                 ;-------- Инициализируем значения в памяти
+000074 e000      	ldi tmp, 0x00
+000075 e0f1      	ldi ZH, high(dsecond)
+000076 e0e0      	ldi ZL, low(dsecond)
+000077 9301      	st Z+, tmp
+000078 9301      	st Z+, tmp
+000079 e308      	ldi tmp, 0x38
+00007a 9301      	st Z+, tmp
+00007b e106      	ldi tmp, 0x16
+00007c 9301      	st Z+, tmp
+00007d e205      	ldi tmp, 0x25
+00007e 9301      	st Z+, tmp
+00007f e007      	ldi tmp, 0x07
+000080 9301      	st Z+, tmp
+000081 e104      	ldi tmp, 0x14
+000082 9301      	st Z+, tmp
+000083 e200      	ldi tmp, 0x20
+000084 9301      	st Z+, tmp
+000085 e002      	ldi tmp, 0x02
+000086 8300      	st Z, tmp
+                 
+000087 e0f1      	ldi ZH, high(sec_duration)
+000088 e1e4      	ldi ZL, low(sec_duration)
+                 ;	ldi tmp, sec_dur_eep
+                 
+                 ;eep_w:
+                 ;	sbic EECR, 1
+                 ;	rjmp eep_w
+                 
+                 ;	out EEARL, tmp
+                 ;	sbi EECR, 0
+                 ;	in tmp, EEDR
+000089 e200      	ldi tmp, TimCntVal	; в этом случае икремент времени будет происходить каждую 1/7 секунды (в теории)
+00008a 8300      	st Z, tmp
+                 
+00008b e015      	ldi tmp1, 0x05
+00008c 2e21      	mov lcd_x, tmp1
+00008d 2e31      	mov lcd_y, tmp1
+00008e ef1f      	ldi tmp1, 0xFF
+00008f 2e51      	mov frg_color, tmp1
+000090 e010      	ldi tmp1, 0x00
+000091 2e41      	mov bkg_color, tmp1
+000092 e011      	ldi tmp1, 0x01
+000093 2e61      	mov lcd_mx, tmp1
+000094 2e71      	mov lcd_my, tmp1
+                 
+000095 9478      	sei
+                 
+000096 d310      	rcall LCD_C60_Init
+000097 9a29
+000098 0000      	CS_HIGH
+000099 d3fc      	rcall LCD_Clear
+00009a 9841
+00009b 0000      	LED_OFF
+                 	
+00009c d24e      	rcall LCD_IdleOn
+                 
+                 main:
+                 
+00009d 9588      	sleep
+                 
+                 ; Ждем обновления TC2 как в апп-нотах по RTC
+00009e e000      	ldi tmp, 0x00
+00009f 9300 00b4 	sts OCR2B, tmp
+                 wtr:
+0000a1 9100 00b6 	lds tmp, ASSR
+0000a3 fd02      	sbrc tmp, OCR2BUB
+0000a4 cffc      	rjmp wtr
+                 
+                 
+0000a5 3030      	cpi mode, 0x00
+0000a6 f461      	brne m_mode1
+                 
+                 ; Режим 0 - рисуем часы, подсветка 5 секунд по нажатию, режим Idle
+0000a7 9bf3      	sbis GPIOR0, 3	; Выполняем рисование каждую секунду
+0000a8 c042      	rjmp kbd_hand
+                 
+0000a9 e003      	ldi tmp, 3
+0000aa 2e20      	mov lcd_x, tmp
+0000ab e10c      	ldi tmp, 28
+0000ac 2e30      	mov lcd_y, tmp
+0000ad d121      	rcall LCD_DrawTime
+0000ae e005      	ldi tmp, 0x05
+0000af 2e30      	mov lcd_y, tmp
+0000b0 2e20      	mov lcd_x, tmp
+0000b1 d1cd      	rcall LCD_DrawDate
+0000b2 c038      	rjmp kbd_hand
+                 ; Режим 1 - рисуем редактируемую величину, подсветка включена, режим Normal, рисуем с интервалом 0.1 сек
+                 m_mode1:
+0000b3 3031      	cpi mode, 0x01
+0000b4 f5b1      	brne m_mode2
+0000b5 9bf2      	sbis GPIOR0, 2
+0000b6 c034      	rjmp kbd_hand
+                 
+0000b7 e0fd
+0000b8 e3e6      	LAPZ corr_nam_table
+0000b9 d0b1      	rcall mt_offset
+0000ba 9105      	lpm tmp, Z+
+0000bb 9114      	lpm tmp1, Z
+0000bc 2fe0      	mov ZL, tmp
+0000bd 2ff1      	mov ZH, tmp1
+0000be e005      	ldi tmp, 0x05
+0000bf 2e30      	mov lcd_y, tmp
+0000c0 2e20      	mov lcd_x, tmp
+0000c1 e001      	ldi tmp, 0x01
+0000c2 2e60      	mov lcd_mx, tmp
+0000c3 2e70      	mov lcd_my, tmp
+0000c4 d252      	rcall LCD_DrawStringPM	; Отображаем название редактируемой величины
+0000c5 e105      	ldi tmp, 0x15
+0000c6 2e30      	mov lcd_y, tmp
+0000c7 2700      	clr tmp
+0000c8 2e20      	mov lcd_x, tmp
+0000c9 e004      	ldi tmp, 4
+0000ca 1780      	cp mode_tmp, tmp
+0000cb f081      	breq dr_day_wk
+                 ; Рисуем часы, секунды, минуты, дни, месяцы
+0000cc e003      	ldi tmp, 0x03
+0000cd 2e60      	mov lcd_mx, tmp
+0000ce 2e70      	mov lcd_my, tmp
+0000cf e0fd
+0000d0 e4e4      	LAPZ corr_table
+0000d1 d099      	rcall mt_offset
+0000d2 9105      	lpm tmp, Z+
+0000d3 9114      	lpm tmp1, Z
+0000d4 2fe0      	mov ZL, tmp
+0000d5 2ff1      	mov ZH, tmp1
+0000d6 e006      	ldi tmp, 6
+0000d7 1780      	cp mode_tmp, tmp
+0000d8 f059      	breq dr_year
+0000d9 8100      	ld tmp, Z
+0000da d226      	rcall LCD_DrawBCD
+0000db c00f      	rjmp kbd_hand
+                 dr_day_wk:
+                 ; Рисуем дни недели
+0000dc e001      	ldi tmp, 0x01
+0000dd 2e60      	mov lcd_mx, tmp
+0000de 2e70      	mov lcd_my, tmp
+0000df e018      	ldi tmp1, 8
+0000e0 e409      	ldi tmp, 9*8+1
+0000e1 d1fd      	rcall LCD_DrawBkgBar
+0000e2 d1cc      	rcall LCD_DrawDayOfWeek
+0000e3 c007      	rjmp kbd_hand
+                 dr_year:
+                 ; Рисуем год
+0000e4 9631      	adiw ZL, 0x01
+0000e5 8100      	ld tmp, Z
+0000e6 d21a      	rcall LCD_DrawBCD
+0000e7 9731      	sbiw ZL, 0x01
+0000e8 8100      	ld tmp, Z
+0000e9 d217      	rcall LCD_DrawBCD
+0000ea c000      	rjmp kbd_hand
+                 m_mode2:				
+                 
+                 kbd_hand:
+0000eb 3030      	cpi mode, 0x00
+0000ec f479      	brne m_kbd_mode1
+                 ; Обработчик кнопок режима 0
+0000ed fcd3      	sbrc kbd_press, 3
+0000ee c005      	rjmp nx_b
+0000ef 9a41
+0000f0 0000      	LED_ON
+0000f1 d204      	rcall LCD_IdleOff
+0000f2 e302      	ldi tmp, 50
+0000f3 2e90      	mov led_timer, tmp
+                 nx_b:
+0000f4 fcd5      	sbrc kbd_press, 5
+0000f5 c005      	rjmp nx_b1
+0000f6 9533      	inc mode
+0000f7 d39e      	rcall LCD_Clear
+0000f8 d1fd      	rcall LCD_IdleOff
+0000f9 9a41
+0000fa 0000      	LED_ON
+                 nx_b1:
+0000fb cfa1      	rjmp main
+                 m_kbd_mode1:
+                 ; Обработчик кнопок режима 1
+0000fc 3031      	cpi mode, 0x01
+0000fd f009      	breq m_kbd_mode1_cont
+0000fe c064      	rjmp m_kbd_mode2
+                 m_kbd_mode1_cont:
+0000ff fcd5      	sbrc kbd_press, 5
+000100 c005      	rjmp nx_b_m1
+000101 2733      	clr mode
+000102 d393      	rcall LCD_Clear
+000103 d1e7      	rcall LCD_IdleOn
+000104 9841
+000105 0000      	LED_OFF
+                 nx_b_m1:	; Кнопки 4, 1 (средние слева и справа соответственно) - выбор редактируемой величины
+000106 fcd4      	sbrc kbd_press, 4
+000107 c006      	rjmp nx_b1_m1
+000108 d38d      	rcall LCD_Clear
+000109 2388      	tst mode_tmp
+00010a f011      	breq m_mdtmp_max_set
+00010b 958a      	dec mode_tmp
+00010c c001      	rjmp nx_b1_m1
+                 m_mdtmp_max_set:
+00010d e086      	ldi mode_tmp, 0x06
+                 nx_b1_m1:
+00010e fcd1      	sbrc kbd_press, 1
+00010f c005      	rjmp nx_b2_m1
+000110 d385      	rcall LCD_Clear
+000111 9583      	inc mode_tmp
+000112 3087      	cpi mode_tmp, 0x07
+000113 f409      	brne nx_b2_m1
+000114 2788      	clr mode_tmp
+                 nx_b2_m1: ; Кнопки 0, 2 (справа верхняя и нижняя соответственно) - изменение выбранной величины
+000115 fed0      	sbrs kbd_press, 0
+000116 c003      	rjmp nx_b2_cont
+000117 fed2      	sbrs kbd_press, 2
+000118 c001      	rjmp nx_b2_cont
+000119 c048      	rjmp nx_b3_m1
+                 
+                 nx_b2_cont:
+00011a e0fd
+00011b e4e4      	LAPZ corr_table	; Таблица адресов корректируемых величин (для удобства)
+00011c d04e      	rcall mt_offset
+                 
+00011d 9105      	lpm tmp, Z+
+00011e 9114      	lpm tmp1, Z	; tmp1:tmp - адрес редактируемой величины
+00011f 2ff1      	mov ZH, tmp1
+000120 2fe0      	mov ZL, tmp
+                 
+000121 94f8      	cli	; Отключаем прерывания, т.к. меняем время
+000122 fcd0      	sbrc kbd_press, 0	; кнопка 1 - инкремент
+000123 c002      	rjmp val_dec
+000124 d140      	rcall BCD_Inc	; Увеличиваем значение в памяти 
+000125 c002      	rjmp val_check
+                 val_dec:
+000126 e909      	ldi tmp, 0x99
+000127 d123      	rcall BCD_Add	; аналогично BCD_Dec
+                 val_check:
+000128 8100      	ld tmp, Z	; в tmp число после модификации
+000129 930f      	push tmp
+00012a 3082      	cpi mode_tmp, 0x02
+00012b f091      	breq sec_corr
+00012c 3083      	cpi mode_tmp, 0x03
+00012d f0c9      	breq day_corr
+00012e 3086      	cpi mode_tmp, 0x06
+00012f f189      	breq no_corr
+                 hr_mn_mo:
+                 ; для часов, минут и месяца
+000130 910f      	pop tmp
+000131 93ff      	push ZH
+000132 93ef      	push ZL
+000133 e0fd
+000134 e5e2      	LAPZ corr_max_value
+000135 d035      	rcall mt_offset
+000136 9114      	lpm tmp1, Z	; следующее после максимального значение редактируемого параметра
+000137 91ef      	pop ZL
+000138 91ff      	pop ZH
+000139 1701      	cp tmp, tmp1
+00013a f130      	brlo no_corr	; коррекция не нужна
+00013b 2700      	clr tmp
+00013c 8300      	st Z, tmp
+00013d c023      	rjmp no_corr
+                 sec_corr:
+                 ; для секунд (тупо в лоб обнуляем)
+00013e 2700      	clr tmp
+00013f 8300      	st Z, tmp	; обнуляем число секунд
+000140 9731      	sbiw ZL, 0x01
+000141 8300      	st Z, tmp	; обнуляем чило десятых долей секунд
+000142 d030      	rcall Tmp_to_TCNT2	; сброс счетчика таймера
+000143 e0f1
+000144 e1e5      	LASZ sec_cnt
+000145 8300      	st Z, tmp	; обнуляем счетчик интервала 0.1 сек
+000146 c01a      	rjmp no_corr
+                 day_corr:
+                 ; в стеке лежит скорректированное текущее число	
+000147 93ff      	push ZH	; а ZH:ZL указывает на него в оперативной памяти
+000148 93ef      	push ZL
+000149 e0f1
+00014a e0e5      	LASZ month
+00014b 8100      	ld tmp, Z	; месяц
+00014c fd04      	sbrc tmp, 4
+00014d 5006      	subi tmp, 6	; в tmp номер месяца в binary
+00014e 950a      	dec tmp
+00014f e0fc
+000150 e7e6      	LAPZ month_len
+000151 0fe0      	add ZL, tmp
+000152 2700      	clr tmp
+000153 1ff0      	adc ZH, tmp
+000154 9114      	lpm tmp1, Z	; теперь тут число дней в месяце
+000155 91ef      	pop ZL
+000156 91ff      	pop ZH
+000157 910f      	pop tmp	; tmp - текущее число
+000158 3000      	cpi tmp, 0x00
+000159 f021      	breq day_cr1
+00015a 1701      	cp tmp, tmp1
+00015b f028      	brlo no_corr
+00015c e001      	ldi tmp, 0x01
+00015d c002      	rjmp day_cr2
+                 day_cr1:
+00015e 2f01      	mov tmp, tmp1
+00015f 950a      	dec tmp ; Здесь можно и без BCD_Inc, т.к. переполнения не будет
+                 day_cr2:
+000160 8300      	st Z, tmp
+                 no_corr:
+000161 9478      	sei	; Включаем прерывания обратно
+                 nx_b3_m1:
+000162 cf3a      	rjmp main
+                 
+                 m_kbd_mode2:
+                 ; Обработчик кнопок режима 2
+000163 fcd5      	sbrc kbd_press, 5
+000164 c005      	rjmp nx_b_m2
+000165 2733      	clr mode
+000166 d32f      	rcall LCD_Clear
+000167 d183      	rcall LCD_IdleOn
+000168 9841
+000169 0000      	LED_OFF
+                 nx_b_m2:
+00016a cf32      	rjmp main
+                 
+                 ; для экономии flash расчет смещения для mode_tmp вынесен в отдельную подпрограмму
+                 mt_offset:
+00016b 938f      	push mode_tmp
+00016c 0f88      	lsl mode_tmp
+00016d 0fe8      	add ZL, mode_tmp
+00016e 2788      	clr mode_tmp
+00016f 1ff8      	adc ZH, mode_tmp
+000170 918f      	pop mode_tmp
+000171 9508      	ret
+                 ;-------- Конец основного цикла
+                 
+                 INT0r:
+                 INT1r:
+                 PCINT0r:
+                 PCINT1r:
+                 PCINT2r:
+                 WDT:
+                 T2_OVF:
+                 T2_COMPB:
+                 T1_CAPT:
+                 T1_COMPA:
+                 T1_COMPB:
+                 T1_OVF:
+                 T0_COMPA:
+                 T0_COMPB:
+                 T0_OVF:
+                 SPI_STC:
+                 USART_RX:
+                 USART_UDRE:
+                 USART_TX:
+                 AnalogDC:
+                 EE_RDY:
+                 AnalogCMP:
+                 TWI:
+                 SPM_RDY:
+000172 9518      	reti
+                 
+                 Tmp_to_TCNT2:
+000173 930f      	push tmp
+000174 9300 00b2 	sts TCNT2, tmp
+                 wl_tcnt_z:
+000176 9100 00b6 	lds tmp, ASSR
+000178 fd04      	sbrc tmp, 4
+000179 cffc      	rjmp wl_tcnt_z	
+00017a 910f      	pop tmp
+00017b 9508      	ret
+                 
+                 T2_COMPA:		; обработчик прерывания от таймера
+00017c 930f      	push tmp
+00017d b70f      	in tmp, SREG
+00017e 930f      	push tmp
+                 
+00017f 93ff      	push ZH
+000180 93ef      	push ZL
+                 
+000181 b30e      	in tmp, GPIOR0
+000182 7003      	andi tmp, 0b00000011
+000183 bb0e      	out GPIOR0, tmp			; сбрасываем флаги временных событий
+                 
+000184 d01b      	rcall KBD_Check ; Скан кнопок
+                 	
+000185 e0f1      	ldi ZH, high(sec_duration)
+000186 e1e4      	ldi ZL, low(sec_duration)
+000187 8100      	ld tmp, Z
+000188 94a3      	inc sec_part_cnt
+000189 16a0      	cp sec_part_cnt, tmp
+00018a f471      	brne t2_end
+                 
+                 ; Прошла 0.1 секунды
+00018b 9af2      	sbi GPIOR0, 2	; Установили флаг
+                 	
+00018c d065      	rcall Time_Date_Inc	; Инкремент даты-времени
+00018d 24aa      	clr sec_part_cnt	; Очистили счетчик
+                 ; Определяем, в каком режиме работают часы
+00018e 3030      	cpi mode, 0x00
+00018f f441      	brne tc2_mode1
+                 ; Режим 0 - управление подсветкой
+000190 2099      	tst led_timer		; Работа с подсветкой
+000191 f039      	breq t2_end
+000192 949a      	dec led_timer
+000193 f429      	brne t2_end
+000194 9841
+000195 0000      	LED_OFF
+000196 d154      	rcall LCD_IdleOn
+000197 c001      	rjmp t2_end
+                 
+                 tc2_mode1:
+                 ; Режим 1 - настройка даты, времени, корректировок
+000198 0000      	nop
+                 
+                 t2_end:
+000199 952a      	dec tmp2
+                 
+00019a 91ef      	pop ZL
+00019b 91ff      	pop ZH
+                 t2_out:
+00019c 910f      	pop tmp
+00019d bf0f      	out SREG, tmp
+00019e 910f      	pop tmp
+00019f 9518      	reti
+                 
+                 ;-------- Подпрограммы
+                 KBD_Check:
+0001a0 930f      	push tmp
+0001a1 9bf1      	sbis GPIOR0, 1
+0001a2 c00c      	rjmp row0_active
+                 ; row1 active
+0001a3 b109      	in tmp, PIND
+0001a4 7700      	andi tmp, 0b01110000
+0001a5 9506      	lsr tmp
+0001a6 2a80      	or kbd, tmp
+0001a7 6c07      	ori tmp, 0b11000111
+0001a8 2280      	and kbd, tmp
+0001a9 9a5a      	sbi PORTD, 2
+0001aa 0000      	nop
+0001ab 985b      	cbi PORTD, 3
+0001ac 0000      	nop
+0001ad 98f1      	cbi GPIOR0, 1
+0001ae c00e      	rjmp kbd_end
+                 row0_active:
+0001af b109      	in tmp, PIND
+0001b0 7700      	andi tmp, 0b01110000
+0001b1 9506      	lsr tmp
+0001b2 9506      	lsr tmp
+0001b3 9506      	lsr tmp
+0001b4 9506      	lsr tmp
+0001b5 2a80      	or kbd, tmp
+0001b6 6f08      	ori tmp, 0b11111000
+0001b7 2280      	and kbd, tmp
+0001b8 9a5b      	sbi PORTD, 3
+0001b9 0000      	nop
+0001ba 985a      	cbi PORTD, 2
+0001bb 0000      	nop
+0001bc 9af1      	sbi GPIOR0, 1
+                 kbd_end:
+0001bd e30f      	ldi tmp, 0b00111111
+0001be 2280      	and kbd, tmp
+0001bf 1680      	cp kbd, tmp
+0001c0 f411      	brne kbd_ret
+0001c1 e800      	ldi tmp, 0x80
+0001c2 2a80      	or kbd,tmp	; установлен флаг нажатия (для удобства)
+                 kbd_ret:
+                 ; Здесь формируем kbd_press и kbd_release
+0001c3 2d08      	mov tmp, kbd
+0001c4 250c      	eor tmp, kbd_prev	; tmp - содержит 1-цы если кнопка поменяла свое состояние
+0001c5 6c00      	ori tmp, 0b11000000	; лишнее отсекаем
+0001c6 2cdc      	mov kbd_press, kbd_prev	; здесь 0 если кнопка нажата в прошлом такте
+0001c7 2ce8      	mov kbd_release, kbd	; здесь 0 если кнопка нажата в этом такте
+0001c8 22d0      	and kbd_press, tmp ; если кнопка поменяла свое значение и она нажата в этом такте, то в нужном бите будет 1 (кнопка нажата)
+0001c9 22e0      	and kbd_release, tmp ; если кнопка была нажата в прошлом такте, но поменяла свое значение, то в нужном бите будет 1 (кнопка отпущена)
+0001ca 94d0      	com kbd_press
+0001cb 94e0      	com kbd_release
+0001cc 2cc8      	mov kbd_prev, kbd	; настоящее значение теперь предыдущее
+                 
+0001cd 910f      	pop tmp
+0001ce 9508      	ret
+                 ;----------------------
+                 LCD_DrawTime:
+0001cf 93ff      	push ZH
+0001d0 93ef      	push ZL
+0001d1 930f      	push tmp
+0001d2 931f      	push tmp1
+                 
+0001d3 e002      	ldi tmp, 2
+0001d4 2e60      	mov lcd_mx, tmp
+0001d5 e003      	ldi tmp, 3
+0001d6 2e70      	mov lcd_my, tmp
+                 
+0001d7 e012      	ldi tmp1, 2
+0001d8 e0f1      	ldi ZH, high(hour)	; рисуем часы
+0001d9 e0e3      	ldi ZL, low(hour)
+                 drw_clk:
+0001da 8100      	ld tmp, Z
+0001db d125      	rcall LCD_DrawBCD
+0001dc 3011      	cpi tmp1, 0x01
+0001dd f039      	breq drw_clk_sec
+0001de e30a      	ldi tmp,':'
+0001df d16e      	rcall LCD_DrawChar
+0001e0 e100      	ldi tmp, 16
+0001e1 0e20      	add lcd_x, tmp
+0001e2 9731      	sbiw ZL, 1
+0001e3 951a      	dec tmp1
+0001e4 f7a9      	brne drw_clk
+                 
+                 drw_clk_sec:
+0001e5 e001      	ldi tmp, 1
+0001e6 2e60      	mov lcd_mx, tmp
+0001e7 2e70      	mov lcd_my, tmp
+0001e8 e00e      	ldi tmp, 14
+0001e9 0e30      	add lcd_y, tmp
+                 
+0001ea 9731      	sbiw ZL, 1
+0001eb 8100      	ld tmp, Z
+0001ec d114      	rcall LCD_DrawBCD
+                 
+0001ed 911f      	pop tmp1
+0001ee 910f      	pop tmp
+0001ef 91ef      	pop ZL
+0001f0 91ff      	pop ZH
+0001f1 9508      	ret
+                 ;---------------------
+                 Time_Date_Inc:
+0001f2 93ff      	push ZH
+0001f3 93ef      	push ZL
+0001f4 930f      	push tmp
+                 
+0001f5 e0f1      	ldi ZH, high(dsecond)
+0001f6 e0e0      	ldi ZL, low(dsecond)
+0001f7 d06d      	rcall BCD_Inc	; доли секунды (задаются константой sec_part)
+0001f8 8100      	ld tmp, Z
+0001f9 3008      	cpi tmp, sec_part
+0001fa f009      	breq tdi_cnt1
+0001fb c04b      	rjmp tdi_end
+                 tdi_cnt1:
+0001fc 2700      	clr tmp
+0001fd 9af3      	sbi GPIOR0, 3
+0001fe 9301      	st Z+, tmp		
+0001ff d065      	rcall BCD_Inc	; секунды
+000200 8100      	ld tmp, Z
+000201 3600      	cpi tmp, 0x60
+000202 f009      	breq tdi_cnt2
+000203 c043      	rjmp tdi_end
+                 tdi_cnt2:
+000204 2700      	clr tmp
+000205 9af4      	sbi GPIOR0, 4
+000206 9301      	st Z+, tmp
+000207 d05d      	rcall BCD_Inc ; минуты
+000208 8100      	ld tmp, Z
+000209 3600      	cpi tmp, 0x60
+00020a f5e1      	brne tdi_end
+00020b 2700      	clr tmp
+00020c 9af5      	sbi GPIOR0, 5
+00020d 9301      	st Z+, tmp
+00020e d056      	rcall BCD_Inc ; часы
+00020f 8100      	ld tmp, Z
+000210 3204      	cpi tmp, 0x24
+000211 f5a9      	brne tdi_end
+000212 2700      	clr tmp
+000213 9af6      	sbi GPIOR0, 6
+000214 9301      	st Z+, tmp
+                 	
+000215 93ff      	push ZH	; дни недели
+000216 93ef      	push ZL
+000217 e0f1      	ldi ZH, high(day_of_week)
+000218 e0e8      	ldi ZL, low(day_of_week)
+000219 8100      	ld tmp, Z
+00021a 9503      	inc tmp
+00021b 3007      	cpi tmp, 0x07
+00021c f409      	brne tdi_cnt
+00021d 2700      	clr tmp
+                 tdi_cnt:
+00021e 8300      	st Z, tmp
+00021f 91ef      	pop ZL
+000220 91ff      	pop ZH
+                 
+000221 d043      	rcall BCD_Inc ; дни
+000222 8100      	ld tmp, Z
+                 ; получаем число дней в месяце в регистр tmp1
+000223 931f      	push tmp1
+000224 93ff      	push ZH
+000225 93ef      	push ZL
+000226 930f      	push tmp
+000227 e0f1      	ldi ZH, high(month)
+000228 e0e5      	ldi ZL, low(month)
+000229 8100      	ld tmp, Z	; в tmp - номер месяца в формате BCD
+00022a fd04      	sbrc tmp, 4
+00022b 5006      	subi tmp, 6	; в tmp номер месяца в binary
+00022c 950a      	dec tmp
+00022d e0fc      	ldi ZH, high(month_len<<1)
+00022e e7e6      	ldi ZL, low(month_len<<1)
+00022f 0fe0      	add ZL, tmp
+000230 e000      	ldi tmp, 0x00
+000231 1ff0      	adc ZH, tmp
+000232 9114      	lpm tmp1, Z
+000233 910f      	pop tmp
+000234 91ef      	pop ZL
+000235 91ff      	pop ZH
+000236 1701      	cp tmp, tmp1
+000237 911f      	pop tmp1
+000238 f471      	brne tdi_end
+000239 e001      	ldi tmp, 0x01
+00023a 9af7      	sbi GPIOR0, 7
+00023b 9301      	st Z+, tmp
+00023c d028      	rcall BCD_Inc ; месяцы
+00023d 8100      	ld tmp, Z
+00023e 3103      	cpi tmp, 0x13
+00023f f439      	brne tdi_end
+000240 e001      	ldi tmp, 0x01
+000241 9301      	st Z+, tmp
+000242 d022      	rcall BCD_Inc ; годы
+000243 9bf0      	sbis GPIOR0, 0
+000244 c002      	rjmp tdi_end
+000245 9631      	adiw ZL, 0x01
+000246 d01e      	rcall BCD_Inc
+                 tdi_end:
+000247 910f      	pop tmp
+000248 91ef      	pop ZL
+000249 91ff      	pop ZH
+00024a 9508      	ret
+                 ;----------------------
+                 BCD_Add:
+                 ; in: Z - указывает на BCD число в памяти
+                 ;     tmp - второе слагаемое (BCD)
+                 ; out: число по адресу Z
+                 ; GPIOR0(bit0) - BCD carry
+                 	
+00024b 931f      	push tmp1
+00024c 930f      	push tmp
+                 
+00024d 98f0      	cbi GPIOR0, 0
+00024e 8110      	ld tmp1, Z
+00024f 0f10      	add tmp1, tmp
+000250 f02d      	brhs lsd_correct
+000251 931f      	push tmp1
+000252 701f      	andi tmp1, 0x0F
+000253 301a      	cpi tmp1, 0x0A
+000254 911f      	pop tmp1
+000255 f010      	brlo msd
+                 lsd_correct:
+000256 e006      	ldi tmp, 0x06
+000257 0f10      	add tmp1, tmp
+                 msd:
+000258 931f      	push tmp1
+000259 7f10      	andi tmp1, 0xF0
+00025a 3a10      	cpi tmp1, 0xA0
+00025b 911f      	pop tmp1
+00025c f020      	brlo bcd_end
+00025d e600      	ldi tmp, 0x60
+00025e 0f10      	add tmp1, tmp
+00025f f408      	brcc bcd_end
+000260 9af0      	sbi GPIOR0, 0 
+                 bcd_end:
+000261 8310      	st Z, tmp1
+                 
+000262 910f      	pop tmp
+000263 911f      	pop tmp1	
+000264 9508      	ret
+                 ;-------------------
+                 BCD_Inc:
+                 ; in: Z - указывает на BCD число в памяти
+                 ; out: число по адресу Z
+000265 930f      	push tmp
+000266 e001      	ldi tmp, 0x01
+000267 dfe3      	rcall BCD_Add
+000268 910f      	pop tmp
+000269 9508      	ret
+                 ;-------------------
+                 Send_SPI:
+                 SPI_Send:
+00026a 930f      	push tmp
+00026b bd0e      	out SPDR, tmp
+                 #ifndef DEBUG
+                 spi_wait:
+00026c b50d      	in tmp, SPSR
+00026d ff07      	sbrs tmp, SPIF
+00026e cffd      	rjmp spi_wait
+                 #endif
+00026f 910f      	pop tmp
+000270 9508      	ret	
+                 ;--------------------
+                 delay_10us:
+000271 930f      	push tmp
+000272 e108      	ldi tmp, 24
+                 
+                 delay_loop:
+000273 950a      	dec tmp
+000274 f7f1      	brne delay_loop
+                 
+000275 910f      	pop tmp
+000276 9508      	ret
+                 ;--------------------
+                 delay_100ms:
+                 #ifndef DEBUG
+000277 e120      	ldi tmp2, 16
+                 d100_w:
+000278 3020      	cpi tmp2, 0x00
+000279 f7f1      	brne d100_w
+                 #endif
+00027a 9508      	ret
+                 ;--------------------
+                 delay_10ms:
+                 #ifndef DEBUG
+00027b e022      	ldi tmp2, 2
+                 d10_w:
+00027c 3020      	cpi tmp2, 0x00
+00027d f7f1      	brne d10_w
+                 #endif
+00027e 9508      	ret
+                 ;--------------------
+                 LCD_DrawDate:
+00027f 93ff      	push ZH
+000280 93ef      	push ZL
+000281 930f      	push tmp
+000282 931f      	push tmp1
+                 
+000283 e001      	ldi tmp, 1
+000284 2e60      	mov lcd_mx, tmp
+000285 2e70      	mov lcd_my, tmp
+                 
+000286 e0f1      	ldi ZH, high(day)	; рисуем дату
+000287 e0e4      	ldi ZL, low(day)
+                 
+000288 8100      	ld tmp, Z
+000289 d077      	rcall LCD_DrawBCD
+00028a e008      	ldi tmp, 8
+00028b 0e20      	add lcd_x, tmp
+                 
+00028c 9631      	adiw ZL, 0x01
+00028d 9101      	ld tmp, Z+
+00028e fd04      	sbrc tmp, 4
+00028f 5006      	subi tmp, 6	; в tmp номер месяца в binary
+000290 950a      	dec tmp
+000291 0f00      	lsl tmp
+000292 0f00      	lsl tmp
+000293 93ff      	push ZH
+000294 93ef      	push ZL
+000295 e0fc      	ldi ZH, high(month_names<<1)
+000296 e8e2      	ldi ZL, low(month_names<<1)
+000297 0fe0      	add ZL, tmp
+000298 e000      	ldi tmp, 0x00
+000299 1ff0      	adc ZH, tmp	; Z указывает на название месяца
+00029a d07c      	rcall LCD_DrawStringPM
+00029b 91ef      	pop ZL
+00029c 91ff      	pop ZH
+00029d e008      	ldi tmp, 0x08
+00029e 0e20      	add lcd_x, tmp
+00029f 9631      	adiw ZL, 0x01
+0002a0 8100      	ld tmp, Z
+0002a1 d05f      	rcall LCD_DrawBCD
+0002a2 9731      	sbiw ZL, 0x01
+0002a3 8100      	ld tmp, Z
+0002a4 d05c      	rcall LCD_DrawBCD
+                 
+0002a5 e005      	ldi tmp, 0x05
+0002a6 2e20      	mov lcd_x, tmp
+0002a7 e30c      	ldi tmp, 60
+0002a8 2e30      	mov lcd_y, tmp
+                 
+0002a9 d005      	rcall LCD_DrawDayOfWeek
+                 
+0002aa 911f      	pop tmp1
+0002ab 910f      	pop tmp
+0002ac 91ef      	pop ZL
+0002ad 91ff      	pop ZH
+0002ae 9508      	ret
+                 ;--------------------
+                 LCD_DrawDayOfWeek:
+0002af e0f1
+0002b0 e0e8      	LASZ day_of_week 	; Рисуем день недели
+0002b1 8100      	ld tmp, Z
+0002b2 e0fc
+0002b3 efe0      	LAPZ week_day_table
+0002b4 0f00      	lsl tmp
+0002b5 0fe0      	add ZL, tmp
+0002b6 2700      	clr tmp
+0002b7 1ff0      	adc ZH, tmp
+0002b8 9105      	lpm tmp, Z+
+0002b9 9114      	lpm tmp1, Z
+0002ba 2fe0      	mov ZL, tmp
+0002bb 2ff1      	mov ZH, tmp1
+0002bc d05a      	rcall LCD_DrawStringPM
+0002bd 9508      	ret
+                 ;--------------------
+                 .include "Sie_c60.inc"	; Siemens C60 routines
+                 
+                 
+                 LCD_DrawBar:
+                 ;in: lcd_x, lcd_y - координаты левого верхнего угла
+                 ; tmp, tmp1 - ширина и высота
+0002be 930f      	push tmp
+0002bf 931f      	push tmp1
+0002c0 923f      	push lcd_y
+0002c1 934f      	push r20
+0002c2 935f      	push r21
+                 
+0002c3 2f40      	mov r20, tmp
+0002c4 2f51      	mov r21, tmp1
+                 
+0002c5 9829
+0002c6 0000      	CS_LOW
+                 dr_bar_col:
+0002c7 d0c7      	rcall LCD_GotoXY
+                 
+0002c8 9828
+0002c9 0000      	CMD_SET
+0002ca e20c      	ldi tmp, 0x2C
+0002cb df9e      	rcall Send_SPI
+                 
+0002cc 9a28
+0002cd 0000      	DATA_SET
+0002ce 2d05      	mov tmp, frg_color
+0002cf 934f      	push r20
+                 dr_bar_line:
+0002d0 df99      	rcall Send_SPI	
+0002d1 954a      	dec r20
+0002d2 f7e9      	brne dr_bar_line
+0002d3 914f      	pop r20
+                 
+0002d4 9433      	inc lcd_y
+0002d5 955a      	dec r21
+0002d6 f781      	brne dr_bar_col
+                 
+0002d7 9a29
+0002d8 0000      	CS_HIGH
+                 
+0002d9 915f      	pop r21
+0002da 914f      	pop r20
+0002db 903f      	pop lcd_y
+0002dc 910f      	pop tmp
+0002dd 911f      	pop tmp1
+0002de 9508      	ret
+                 ;--------------------
+                 LCD_DrawBkgBar:
+                 ; in: то же что и DrawBar
+0002df 930f      	push tmp
+0002e0 2d05      	mov tmp, frg_color
+0002e1 2c54      	mov frg_color, bkg_color
+0002e2 2e40      	mov bkg_color, tmp
+0002e3 910f      	pop tmp
+0002e4 dfd9      	rcall LCD_DrawBar
+0002e5 930f      	push tmp
+0002e6 2d05      	mov tmp, frg_color
+0002e7 2c54      	mov frg_color, bkg_color
+0002e8 2e40      	mov bkg_color, tmp
+0002e9 910f      	pop tmp
+0002ea 9508      	ret
+                 ;--------------------
+                 LCD_IdleOn:
+0002eb 930f      	push tmp
+0002ec 9829
+0002ed 0000      	CS_LOW
+0002ee 9828
+0002ef 0000      	CMD_SET
+0002f0 e309      	ldi tmp, 0x39
+0002f1 df78      	rcall Send_SPI
+0002f2 9a29
+0002f3 0000      	CS_HIGH
+0002f4 910f      	pop tmp
+0002f5 9508      	ret
+                 ;--------------------
+                 LCD_IdleOff:
+0002f6 930f      	push tmp
+0002f7 9829
+0002f8 0000      	CS_LOW
+0002f9 9828
+0002fa 0000      	CMD_SET
+0002fb e308      	ldi tmp, 0x38
+0002fc df6d      	rcall Send_SPI
+0002fd 9a29
+0002fe 0000      	CS_HIGH
+0002ff 910f      	pop tmp
+000300 9508      	ret
+                 ;--------------------
+                 LCD_DrawBCD:
+                 ;in: tmp - число
+000301 930f      	push tmp
+000302 934f      	push r20
+                 
+000303 2d46      	mov r20, lcd_mx
+000304 0f44      	lsl r20
+000305 0f44      	lsl r20
+000306 0f44      	lsl r20
+                 
+000307 930f      	push tmp
+000308 9506      	lsr tmp
+000309 9506      	lsr tmp
+00030a 9506      	lsr tmp
+00030b 9506      	lsr tmp
+00030c 5d00      	subi tmp, 0xD0 ; +0x30
+00030d d040      	rcall LCD_DrawChar
+00030e 0e24      	add lcd_x, r20
+00030f 910f      	pop tmp
+000310 700f      	andi tmp, 0x0F
+000311 5d00      	subi tmp, 0xD0
+000312 d03b      	rcall LCD_DrawChar
+000313 0e24      	add lcd_x, r20
+                 
+000314 914f      	pop r20
+000315 910f      	pop tmp
+000316 9508      	ret
+                 ;--------------------
+                 LCD_DrawStringPM:
+                 ; in: Z - строка во flash ASCIIZ
+000317 930f      	push tmp
+000318 93ff      	push ZH
+000319 93ef      	push ZL
+00031a 934f      	push r20
+                 
+00031b 2d46      	mov r20, lcd_mx ; инкремент по X
+00031c 0f44      	lsl r20
+00031d 0f44      	lsl r20
+00031e 0f44      	lsl r20
+                 drst:
+00031f 9105      	lpm tmp, Z+
+000320 2300      	tst tmp
+000321 f019      	breq drst_end
+000322 d02b      	rcall LCD_DrawChar
+000323 0e24      	add lcd_x, r20
+000324 cffa      	rjmp drst
+                 drst_end:
+000325 914f      	pop r20
+000326 91ef      	pop ZL
+000327 91ff      	pop ZH
+000328 910f      	pop tmp
+000329 9508      	ret
+                 ;--------------------
+                 LCD_DrawByte:
+                 ; in: tmp - байт
+00032a 930f      	push tmp
+00032b 934f      	push r20
+                 
+00032c 2d46      	mov r20, lcd_mx
+00032d 0f44      	lsl r20
+00032e 0f44      	lsl r20
+00032f 0f44      	lsl r20
+                 
+000330 930f      	push tmp
+000331 9502      	swap tmp
+000332 700f      	andi tmp, 0x0F
+000333 300a      	cpi tmp, 0x0A
+000334 f018      	brlo dr_b09
+000335 5c09      	subi tmp, (0x100 - 'A' + 0x0A)
+000336 d017      	rcall LCD_DrawChar
+000337 c002      	rjmp dr_b_lnibble
+                 dr_b09:
+000338 5d00      	subi tmp, 0xD0
+000339 d014      	rcall LCD_DrawChar
+                 dr_b_lnibble:
+00033a 0e24      	add lcd_x, r20
+00033b 910f      	pop tmp
+00033c 700f      	andi tmp, 0x0F
+00033d 300a      	cpi tmp, 0x0A
+00033e f018      	brlo dr_b09_1
+00033f 5c09      	subi tmp, (0x100 - 'A' + 0x0A)
+000340 d00d      	rcall LCD_DrawChar
+000341 c002      	rjmp dr_b_end
+                 dr_b09_1:
+000342 5d00      	subi tmp, 0xD0
+000343 d00a      	rcall LCD_DrawChar
+                 dr_b_end:
+000344 0e24      	add lcd_x, r20
+000345 914f      	pop r20
+000346 910f      	pop tmp
+000347 9508      	ret
+                 ;--------------------
+                 LCD_DrawWord:
+                 ; tmp:tmp1 - слово
+000348 930f      	push tmp
+                 
+000349 dfe0      	rcall LCD_DrawByte
+00034a 2f01      	mov tmp, tmp1
+00034b dfde      	rcall LCD_DrawByte
+                 
+00034c 910f      	pop tmp
+00034d 9508      	ret
+                 ;--------------------
+                 LCD_DrawChar:
+                 ; in: tmp - ASCII код символа
+                 ;	lcd_x, lcd_y - координаты
+                 ; lcd_mx - масштаб по x
+                 ; lcd_my - масштаб по y
+                 
+                 ;	cpi tmp, 0x20
+                 ;	brlo drw_chr_end
+                 	
+00034e 930f      	push tmp
+00034f 931f      	push tmp1
+000350 93ff      	push ZH
+000351 93ef      	push ZL
+000352 922f      	push lcd_x
+000353 923f      	push lcd_y
+000354 934f      	push r20	; индекс по y
+000355 935f      	push r21	; индекс по x
+                 	
+000356 e0f9      	ldi ZH, high(font8x8<<1)
+000357 e6ee      	ldi ZL, low(font8x8<<1)
+000358 5200      	subi tmp, 0x20
+000359 2711      	clr tmp1 ; tmp1:tmp * 8
+00035a 1f00      	rol tmp
+00035b 1f11      	rol tmp1
+00035c 1f00      	rol tmp
+00035d 1f11      	rol tmp1
+00035e 1f00      	rol tmp
+00035f 1f11      	rol tmp1 ; tmp1:tmp - смещение
+000360 0fe0      	add ZL, tmp
+000361 1ff1      	adc ZH, tmp1
+                 
+000362 e048      	ldi r20, 0x08
+000363 9829
+000364 0000      	CS_LOW
+                 cdrw:
+000365 9115      	lpm tmp1, Z+
+000366 927f      	push lcd_my
+                 mydrw:
+000367 d027      	rcall LCD_GotoXY
+000368 9828
+000369 0000      	CMD_SET
+00036a e20c      	ldi tmp, 0x2C
+00036b defe      	rcall Send_SPI
+00036c 9a28
+00036d 0000      	DATA_SET
+00036e e058      	ldi r21, 0x08
+00036f 931f      	push tmp1
+                 ldrw:
+000370 ff17      	sbrs tmp1, 7
+000371 c002      	rjmp drw_bkg
+000372 2d05      	mov tmp, frg_color
+000373 c001      	rjmp drw
+                 drw_bkg:
+000374 2d04      	mov tmp, bkg_color
+                 drw:
+000375 926f      	push lcd_mx
+                 mxdrw:
+000376 def3      	rcall Send_SPI
+000377 946a      	dec lcd_mx
+000378 f7e9      	brne mxdrw
+000379 906f      	pop lcd_mx
+                 
+00037a 0f11      	lsl tmp1
+00037b 955a      	dec r21
+00037c f799      	brne ldrw
+00037d 911f      	pop tmp1
+00037e 9433      	inc lcd_y
+00037f 947a      	dec lcd_my
+000380 f731      	brne mydrw
+000381 907f      	pop lcd_my
+000382 954a      	dec r20
+000383 f709      	brne cdrw	
+                 
+000384 9a29
+000385 0000      	CS_HIGH	
+                 
+000386 915f      	pop r21
+000387 914f      	pop r20
+000388 903f      	pop lcd_y
+000389 902f      	pop lcd_x
+00038a 91ef      	pop ZL
+00038b 91ff      	pop ZH
+00038c 911f      	pop tmp1
+00038d 910f      	pop tmp	
+                 drw_chr_end:
+00038e 9508      	ret
+                 ;--------------------
+                 LCD_GotoXY:
+                 ; вход lcd_x, lcd_y
+00038f 930f      	push tmp
+000390 9828
+000391 0000      	CMD_SET
+000392 e20a      	ldi tmp, 0x2A
+000393 ded6      	rcall Send_SPI
+000394 9a28
+000395 0000      	DATA_SET
+000396 2d02      	mov tmp, lcd_x
+000397 ded2      	rcall Send_SPI
+000398 e604      	ldi tmp, 100
+000399 ded0      	rcall Send_SPI
+00039a 9828
+00039b 0000      	CMD_SET
+00039c e20b      	ldi tmp, 0x2B
+00039d decc      	rcall Send_SPI
+00039e 9a28
+00039f 0000      	DATA_SET
+0003a0 2d03      	mov tmp, lcd_y
+0003a1 9503      	inc tmp
+0003a2 dec7      	rcall Send_SPI
+0003a3 e500      	ldi tmp, 80
+0003a4 dec5      	rcall Send_SPI
+0003a5 910f      	pop tmp
+0003a6 9508      	ret
+                 ;--------------------
+                 LCD_C60_Init:
+0003a7 930f      	push tmp
+                 ;; LCD RESET	
+0003a8 9840
+0003a9 0000      	LCD_RESET_LOW
+0003aa decc      	rcall delay_100ms
+0003ab 9a40
+0003ac 0000      	LCD_RESET_HIGH
+0003ad dec9      	rcall delay_100ms
+0003ae dec8      	rcall delay_100ms
+0003af dec7      	rcall delay_100ms
+0003b0 dec6      	rcall delay_100ms
+0003b1 dec5      	rcall delay_100ms
+0003b2 9a29
+0003b3 0000      	CS_HIGH
+0003b4 debc      	rcall delay_10us
+0003b5 9829
+0003b6 0000      	CS_LOW
+                 
+                 ;   Send_to_lcd(CMD,0x01); //reset sw
+                 ;   DelayMs(50);
+                 ;   Send_to_lcd(CMD,0xc6); //initial escape
+                 ;   DelayMs(40);
+                 ;   Send_to_lcd(CMD,0xb9); //Refresh set
+                 ;   Send_to_lcd(DAT,0x00);
+0003b7 9828
+0003b8 0000      	CMD_SET
+0003b9 e001      	ldi tmp, 0x01
+0003ba deaf      	rcall Send_SPI
+0003bb debf      	rcall delay_10ms
+0003bc debe      	rcall delay_10ms
+0003bd debd      	rcall delay_10ms
+0003be debc      	rcall delay_10ms
+0003bf debb      	rcall delay_10ms
+0003c0 ec06      	ldi tmp, 0xC6
+0003c1 dea8      	rcall Send_SPI
+0003c2 deb8      	rcall delay_10ms
+0003c3 deb7      	rcall delay_10ms
+0003c4 deb6      	rcall delay_10ms
+0003c5 deb5      	rcall delay_10ms
+0003c6 eb09      	ldi tmp, 0xB9
+0003c7 dea2      	rcall Send_SPI
+0003c8 9a28
+0003c9 0000      	DATA_SET
+0003ca e000      	ldi tmp, 0x00
+0003cb de9e      	rcall Send_SPI
+                 ;   Send_to_lcd(CMD,0xb6); //Display control
+                 ;   Send_to_lcd(DAT,0x80); //
+                 ;   Send_to_lcd(DAT,0x04); //
+                 ;   Send_to_lcd(DAT,0x8a); //
+                 ;   Send_to_lcd(DAT,0x54); //
+                 ;   Send_to_lcd(DAT,0x45); //
+                 ;   Send_to_lcd(DAT,0x52); //
+                 ;   Send_to_lcd(DAT,0x43); //
+0003cc 9828
+0003cd 0000      	CMD_SET
+0003ce eb06      	ldi tmp, 0xB6
+0003cf de9a      	rcall Send_SPI
+0003d0 9a28
+0003d1 0000      	DATA_SET
+0003d2 e800      	ldi tmp, 0x80
+0003d3 de96      	rcall Send_SPI
+0003d4 e004      	ldi tmp, 0x04
+0003d5 de94      	rcall Send_SPI
+0003d6 e80a      	ldi tmp, 0x8A
+0003d7 de92      	rcall Send_SPI
+0003d8 e504      	ldi tmp, 0x54
+0003d9 de90      	rcall Send_SPI
+0003da e405      	ldi tmp, 0x45
+0003db de8e      	rcall Send_SPI
+0003dc e502      	ldi tmp, 0x52
+0003dd de8c      	rcall Send_SPI
+0003de e403      	ldi tmp, 0x43
+0003df de8a      	rcall Send_SPI
+                 ;   Send_to_lcd(CMD,0xb3); //Gray scale position set 0
+                 ;   Send_to_lcd(DAT,0x02); //
+                 ;   Send_to_lcd(DAT,0x0a); //
+                 ;   Send_to_lcd(DAT,0x15); //
+                 ;   Send_to_lcd(DAT,0x1f); //
+                 ;   Send_to_lcd(DAT,0x28); //
+                 ;   Send_to_lcd(DAT,0x30); //
+                 ;   Send_to_lcd(DAT,0x37); //
+                 ;   Send_to_lcd(DAT,0x3f); //
+                 ;   Send_to_lcd(DAT,0x47); //
+                 ;   Send_to_lcd(DAT,0x4c); //
+                 ;   Send_to_lcd(DAT,0x54); //
+                 ;   Send_to_lcd(DAT,0x65); //
+                 ;   Send_to_lcd(DAT,0x75); //
+                 ;   Send_to_lcd(DAT,0x80); //
+                 ;   Send_to_lcd(DAT,0x85); //
+0003e0 9828
+0003e1 0000      	CMD_SET
+0003e2 eb03      	ldi tmp, 0xb3
+0003e3 de86      	rcall Send_SPI
+0003e4 9a28
+0003e5 0000      	DATA_SET
+0003e6 e002      	ldi tmp, 0x02
+0003e7 de82      	rcall Send_SPI
+0003e8 e00a      	ldi tmp, 0x0a
+0003e9 de80      	rcall Send_SPI
+0003ea e105      	ldi tmp, 0x15
+0003eb de7e      	rcall Send_SPI
+0003ec e10f      	ldi tmp, 0x1f
+0003ed de7c      	rcall Send_SPI
+0003ee e208      	ldi tmp, 0x28
+0003ef de7a      	rcall Send_SPI
+0003f0 e300      	ldi tmp, 0x30
+0003f1 de78      	rcall Send_SPI
+0003f2 e307      	ldi tmp, 0x37
+0003f3 de76      	rcall Send_SPI
+0003f4 e30f      	ldi tmp, 0x3F
+0003f5 de74      	rcall Send_SPI
+0003f6 e407      	ldi tmp, 0x47
+0003f7 de72      	rcall Send_SPI
+0003f8 e40c      	ldi tmp, 0x4c
+0003f9 de70      	rcall Send_SPI
+0003fa e504      	ldi tmp, 0x54
+0003fb de6e      	rcall Send_SPI
+0003fc e605      	ldi tmp, 0x65
+0003fd de6c      	rcall Send_SPI
+0003fe e705      	ldi tmp, 0x75
+0003ff de6a      	rcall Send_SPI
+000400 e800      	ldi tmp, 0x80
+000401 de68      	rcall Send_SPI
+000402 e805      	ldi tmp, 0x85
+000403 de66      	rcall Send_SPI
+                 ;   Send_to_lcd(CMD,0xb5); //Gamma curve
+                 ;   Send_to_lcd(DAT,0x01); //
+000404 9828
+000405 0000      	CMD_SET
+000406 eb05      	ldi tmp, 0xB5
+000407 de62      	rcall Send_SPI
+000408 9a28
+000409 0000      	DATA_SET
+00040a e001      	ldi tmp, 0x01
+00040b de5e      	rcall Send_SPI
+                 ;   Send_to_lcd(CMD,0xb7); //Temperature gradient
+                 ;   Send_to_lcd(DAT,0x00); //
+                 ;   Send_to_lcd(DAT,0x00); //
+                 ;   Send_to_lcd(DAT,0x00); //
+                 ;   Send_to_lcd(DAT,0x00); //
+                 ;   Send_to_lcd(DAT,0x00); //
+                 ;   Send_to_lcd(DAT,0x00); //
+                 ;   Send_to_lcd(DAT,0x00); //
+                 ;   Send_to_lcd(DAT,0x00); //
+                 ;   Send_to_lcd(DAT,0x00); //
+                 ;   Send_to_lcd(DAT,0x00); //
+                 ;   Send_to_lcd(DAT,0x00); //
+                 ;   Send_to_lcd(DAT,0x00); //
+                 ;   Send_to_lcd(DAT,0x00); //
+                 ;   Send_to_lcd(DAT,0x00); //
+00040c 9828
+00040d 0000      	CMD_SET
+00040e eb07      	ldi tmp, 0xB7
+00040f de5a      	rcall Send_SPI
+000410 9a28
+000411 0000      	DATA_SET
+000412 e000      	ldi tmp, 0x00
+000413 de56      	rcall Send_SPI
+000414 de55      	rcall Send_SPI
+000415 de54      	rcall Send_SPI
+000416 de53      	rcall Send_SPI
+000417 de52      	rcall Send_SPI
+000418 de51      	rcall Send_SPI
+000419 de50      	rcall Send_SPI
+00041a de4f      	rcall Send_SPI
+00041b de4e      	rcall Send_SPI
+00041c de4d      	rcall Send_SPI
+00041d de4c      	rcall Send_SPI
+00041e de4b      	rcall Send_SPI
+00041f de4a      	rcall Send_SPI
+000420 de49      	rcall Send_SPI
+000421 de48      	rcall Send_SPI
+                 ;   Send_to_lcd(CMD,0xbd); //Common driver output select
+                 ;   Send_to_lcd(DAT,0x00); //
+000422 9828
+000423 0000      	CMD_SET
+000424 eb0d      	ldi tmp, 0xBD
+000425 de44      	rcall Send_SPI
+000426 9a28
+000427 0000      	DATA_SET
+000428 e000      	ldi tmp, 0x00
+000429 de40      	rcall Send_SPI
+                 ;   Send_to_lcd(CMD,0x36); //Memory access control
+                 ;   Send_to_lcd(DAT,0x48); //
+00042a 9828
+00042b 0000      	CMD_SET
+00042c e306      	ldi tmp, 0x36
+00042d de3c      	rcall Send_SPI
+00042e 9a28
+00042f 0000      	DATA_SET
+000430 e408      	ldi tmp, 0b01001000
+000431 de38      	rcall Send_SPI
+                 ;   Send_to_lcd(CMD,0x2d); //Colour set
+                 ;   Send_to_lcd(DAT,0x00); //
+                 ;   Send_to_lcd(DAT,0x03); //
+                 ;   Send_to_lcd(DAT,0x05); //
+                 ;   Send_to_lcd(DAT,0x07); //
+                 ;   Send_to_lcd(DAT,0x09); //
+                 ;   Send_to_lcd(DAT,0x0b); //
+                 ;   Send_to_lcd(DAT,0x0d); //
+                 ;   Send_to_lcd(DAT,0x0f); //
+                 
+                 ;   Send_to_lcd(DAT,0x00); //
+                 ;   Send_to_lcd(DAT,0x03); //
+                 ;   Send_to_lcd(DAT,0x05); //
+                 ;   Send_to_lcd(DAT,0x07); //
+                 ;   Send_to_lcd(DAT,0x09); //
+                 ;   Send_to_lcd(DAT,0x0b); //
+                 ;   Send_to_lcd(DAT,0x0d); //
+                 ;   Send_to_lcd(DAT,0x0f); //
+                 
+                 ;   Send_to_lcd(DAT,0x00); //
+                 ;   Send_to_lcd(DAT,0x05); //
+                 ;   Send_to_lcd(DAT,0x0b); //
+                 ;   Send_to_lcd(DAT,0x0f); //
+                 	
+000432 9828
+000433 0000      	CMD_SET
+000434 e20d      	ldi tmp, 0x2D
+000435 de34      	rcall Send_SPI
+000436 9a28
+000437 0000      	DATA_SET
+000438 e000      	ldi tmp, 0x00
+000439 de30      	rcall Send_SPI
+00043a e003      	ldi tmp, 0x03
+00043b de2e      	rcall Send_SPI
+00043c e005      	ldi tmp, 0x05
+00043d de2c      	rcall Send_SPI
+00043e e007      	ldi tmp, 0x07
+00043f de2a      	rcall Send_SPI
+000440 e009      	ldi tmp, 0x09
+000441 de28      	rcall Send_SPI
+000442 e00b      	ldi tmp, 0x0b
+000443 de26      	rcall Send_SPI
+000444 e00d      	ldi tmp, 0x0d
+000445 de24      	rcall Send_SPI
+000446 e00f      	ldi tmp, 0x0f
+000447 de22      	rcall Send_SPI
+000448 e000      	ldi tmp, 0x00
+000449 de20      	rcall Send_SPI
+00044a e003      	ldi tmp, 0x03
+00044b de1e      	rcall Send_SPI
+00044c e005      	ldi tmp, 0x05
+00044d de1c      	rcall Send_SPI
+00044e e007      	ldi tmp, 0x07
+00044f de1a      	rcall Send_SPI
+000450 e009      	ldi tmp, 0x09
+000451 de18      	rcall Send_SPI
+000452 e00b      	ldi tmp, 0x0b
+000453 de16      	rcall Send_SPI
+000454 e00d      	ldi tmp, 0x0d
+000455 de14      	rcall Send_SPI
+000456 e00f      	ldi tmp, 0x0f
+000457 de12      	rcall Send_SPI
+                 
+000458 e000      	ldi tmp, 0x00
+000459 de10      	rcall Send_SPI
+00045a e005      	ldi tmp, 0x05
+00045b de0e      	rcall Send_SPI
+00045c e00b      	ldi tmp, 0x0b
+00045d de0c      	rcall Send_SPI
+00045e e00f      	ldi tmp, 0x0f
+00045f de0a      	rcall Send_SPI
+                 
+                 ;   Send_to_lcd(CMD,0xba); //Voltage control
+                 ;   Send_to_lcd(DAT,0x2f); //
+                 ;   Send_to_lcd(DAT,0x03); //
+000460 9828
+000461 0000      	CMD_SET
+000462 eb0a      	ldi tmp, 0xBA
+000463 de06      	rcall Send_SPI
+000464 9a28
+000465 0000      	DATA_SET
+000466 e20f      	ldi tmp, 0x2F
+000467 de02      	rcall Send_SPI
+000468 e003      	ldi tmp, 0x03
+000469 de00      	rcall Send_SPI
+                 ;   Send_to_lcd(CMD,0x25); //Send_to_lcd contrast
+                 ;   Send_to_lcd(DAT,0x64); // Стоит поиграться со значением контраста, у меня в примере контраст 100, если больше то на дисплее ничего нет
+                 ;   Send_to_lcd(DAT,0x61); //me контраст одинаковый для 0x6e и 0xee
+00046a 9828
+00046b 0000      	CMD_SET
+00046c e205      	ldi tmp, 0x25
+00046d ddfc      	rcall Send_SPI
+00046e 9a28
+00046f 0000      	DATA_SET
+000470 e601      	ldi tmp, 0x61
+000471 ddf8      	rcall Send_SPI
+                 ;   Send_to_lcd(CMD,0xbe); //Power control
+                 ;   Send_to_lcd(DAT,0x59); // me
+                 ;   Send_to_lcd(DAT,0x58); // У меня пишется в этот регистр значение 0х58
+000472 9828
+000473 0000      	CMD_SET
+000474 eb0e      	ldi tmp, 0xBE
+000475 ddf4      	rcall Send_SPI
+000476 9a28
+000477 0000      	DATA_SET
+000478 e508      	ldi tmp, 0x58
+000479 ddf0      	rcall Send_SPI
+                 ;   Send_to_lcd(CMD,0x3a); //interface pixel format
+                 ;   Send_to_lcd(DAT,0x02); //me 8-и битный цвет
+                 ;   Send_to_lcd(DAT,0x03); //12-и битный цвет
+00047a 9828
+00047b 0000      	CMD_SET
+00047c e30a      	ldi tmp, 0x3A
+00047d ddec      	rcall Send_SPI
+00047e 9a28
+00047f 0000      	DATA_SET
+000480 e002      	ldi tmp, 0x02
+000481 dde8      	rcall Send_SPI
+000482 9828
+000483 0000      	CMD_SET
+000484 e201      	ldi tmp, 0x21	// Inverse colors
+000485 dde4      	rcall Send_SPI
+                 ;   Send_to_lcd(CMD,0x03); //Booster voltage ON
+                 ;   DelayMs(40);
+000486 e003      	ldi tmp, 0x03
+000487 dde2      	rcall Send_SPI
+000488 ddf2      	rcall delay_10ms
+000489 ddf1      	rcall delay_10ms
+00048a ddf0      	rcall delay_10ms
+00048b ddef      	rcall delay_10ms
+                 ;   Send_to_lcd(CMD,0x11); //sleep out
+                 ;   DelayMs(20); //Перед включением ждем 20 миллисекунд 
+00048c e101      	ldi tmp, 0x11
+00048d dddc      	rcall Send_SPI
+00048e ddec      	rcall delay_10ms
+00048f ddeb      	rcall delay_10ms
+                 ;   Send_to_lcd(CMD,0x29); //Display ON
+000490 e209      	ldi tmp, 0x29
+000491 ddd8      	rcall Send_SPI
+                 
+000492 9a29
+000493 0000      	CS_HIGH
+000494 910f      	pop tmp
+000495 9508      	ret
+                 
+                 ;--------------------
+                 LCD_Clear:
+000496 930f      	push tmp
+000497 931f      	push tmp1	
+000498 922f      	push lcd_x
+000499 923f      	push lcd_y
+00049a 9829
+00049b 0000      	CS_LOW
+00049c 2700      	clr tmp
+00049d 2e20      	mov lcd_x, tmp
+00049e 2e30      	mov lcd_y, tmp
+00049f deef      	rcall LCD_GotoXY
+                 
+0004a0 9828
+0004a1 0000      	CMD_SET
+0004a2 e20c      	ldi tmp, 0x2C
+0004a3 ddc6      	rcall Send_SPI
+0004a4 9a28
+0004a5 0000      	DATA_SET
+0004a6 2d04      	mov tmp, bkg_color
+                 		
+0004a7 e510      	ldi tmp1, 80
+                 cclr:
+0004a8 931f      	push tmp1
+0004a9 e615      	ldi tmp1, 101
+                 lclr:
+0004aa ddbf      	rcall Send_SPI
+0004ab 951a      	dec tmp1
+0004ac f7e9      	brne lclr
+0004ad 911f      	pop tmp1
+0004ae 951a      	dec tmp1
+0004af f7c1      	brne cclr
+                 
+0004b0 9a29
+0004b1 0000      	CS_HIGH
+0004b2 903f      	pop lcd_y
+0004b3 902f      	pop lcd_x
+0004b4 911f      	pop tmp1
+0004b5 910f      	pop tmp
+0004b6 9508      	ret
+                 
+                 
+                 
+                 ;-------- Данные
+                 
+                 .include "CP866.inc"	; 8x8 font
+                 
+                 ; Font: CP866.pf
+                 font8x8:
+                 ;.db	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00	; (.)
+                 ;.db	0x7E, 0x81, 0xA5, 0x81, 0xBD, 0x99, 0x81, 0x7E	; (.)
+                 ;.db	0x7E, 0xFF, 0xDB, 0xFF, 0xC3, 0xE7, 0xFF, 0x7E	; (.)
+                 ;.db	0x6C, 0xFE, 0xFE, 0xFE, 0x7C, 0x38, 0x10, 0x00	; (.)
+                 ;.db	0x10, 0x38, 0x7C, 0xFE, 0x7C, 0x38, 0x10, 0x00	; (.)
+                 ;.db	0x38, 0x7C, 0x38, 0xFE, 0xFE, 0xD6, 0x10, 0x38	; (.)
+                 ;.db	0x10, 0x38, 0x7C, 0xFE, 0xFE, 0x7C, 0x10, 0x38	; (.)
+                 ;.db	0x00, 0x00, 0x18, 0x3C, 0x3C, 0x18, 0x00, 0x00	; (.)
+                 ;.db	0xFF, 0xFF, 0xE7, 0xC3, 0xC3, 0xE7, 0xFF, 0xFF	; (.)
+                 ;.db	0x00, 0x3C, 0x66, 0x42, 0x42, 0x66, 0x3C, 0x00	; (.)
+                 ;.db	0xFF, 0xC3, 0x99, 0xBD, 0xBD, 0x99, 0xC3, 0xFF	; (.)
+                 ;.db	0x0F, 0x07, 0x0F, 0x7D, 0xCC, 0xCC, 0xCC, 0x78	; (.)
+                 ;.db	0x3C, 0x66, 0x66, 0x66, 0x3C, 0x18, 0x7E, 0x18	; (.)
+                 ;.db	0x3F, 0x33, 0x3F, 0x30, 0x30, 0x70, 0xF0, 0xE0	; (.)
+                 ;.db	0x7F, 0x63, 0x7F, 0x63, 0x63, 0x67, 0xE6, 0xC0	; (.)
+                 ;.db	0x18, 0xDB, 0x3C, 0xE7, 0xE7, 0x3C, 0xDB, 0x18	; (.)
+                 ;.db	0x80, 0xE0, 0xF8, 0xFE, 0xF8, 0xE0, 0x80, 0x00	; (.)
+                 ;.db	0x02, 0x0E, 0x3E, 0xFE, 0x3E, 0x0E, 0x02, 0x00	; (.)
+                 ;.db	0x18, 0x3C, 0x7E, 0x18, 0x18, 0x7E, 0x3C, 0x18	; (.)
+                 ;.db	0x66, 0x66, 0x66, 0x66, 0x66, 0x00, 0x66, 0x00	; (.)
+                 ;.db	0x7F, 0xDB, 0xDB, 0x7B, 0x1B, 0x1B, 0x1B, 0x00	; (.)
+                 ;.db	0x3E, 0x61, 0x3C, 0x66, 0x66, 0x3C, 0x86, 0x7C	; (.)
+                 ;.db	0x00, 0x00, 0x00, 0x00, 0x7E, 0x7E, 0x7E, 0x00	; (.)
+                 ;.db	0x18, 0x3C, 0x7E, 0x18, 0x7E, 0x3C, 0x18, 0xFF	; (.)
+                 ;.db	0x18, 0x3C, 0x7E, 0x18, 0x18, 0x18, 0x18, 0x00	; (.)
+                 ;.db	0x18, 0x18, 0x18, 0x18, 0x7E, 0x3C, 0x18, 0x00	; (.)
+                 ;.db	0x00, 0x18, 0x0C, 0xFE, 0x0C, 0x18, 0x00, 0x00	; (.)
+                 ;.db	0x00, 0x30, 0x60, 0xFE, 0x60, 0x30, 0x00, 0x00	; (.)
+                 ;.db	0x00, 0x00, 0xC0, 0xC0, 0xC0, 0xFE, 0x00, 0x00	; (.)
+                 ;.db	0x00, 0x24, 0x66, 0xFF, 0x66, 0x24, 0x00, 0x00	; (.)
+                 ;.db	0x00, 0x18, 0x3C, 0x7E, 0xFF, 0xFF, 0x00, 0x00	; (.)
+                 ;.db	0x00, 0xFF, 0xFF, 0x7E, 0x3C, 0x18, 0x00, 0x00	; (.)
+0004b7 0000
+0004b8 0000
+0004b9 0000
+0004ba 0000      .db	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00	; ( )
+0004bb 3c18
+0004bc 183c
+0004bd 0018
+0004be 0018      .db	0x18, 0x3C, 0x3C, 0x18, 0x18, 0x00, 0x18, 0x00	; (!)
+0004bf 6666
+0004c0 0024
+0004c1 0000
+0004c2 0000      .db	0x66, 0x66, 0x24, 0x00, 0x00, 0x00, 0x00, 0x00	; (")
+0004c3 6c6c
+0004c4 6cfe
+0004c5 6cfe
+0004c6 006c      .db	0x6C, 0x6C, 0xFE, 0x6C, 0xFE, 0x6C, 0x6C, 0x00	; (#)
+0004c7 3e18
+0004c8 3c60
+0004c9 7c06
+0004ca 0018      .db	0x18, 0x3E, 0x60, 0x3C, 0x06, 0x7C, 0x18, 0x00	; ($)
+0004cb c600
+0004cc 18cc
+0004cd 6630
+0004ce 00c6      .db	0x00, 0xC6, 0xCC, 0x18, 0x30, 0x66, 0xC6, 0x00	; (%)
+0004cf 6c38
+0004d0 7638
+0004d1 ccdc
+0004d2 0076      .db	0x38, 0x6C, 0x38, 0x76, 0xDC, 0xCC, 0x76, 0x00	; (&)
+0004d3 1818
+0004d4 0030
+0004d5 0000
+0004d6 0000      .db	0x18, 0x18, 0x30, 0x00, 0x00, 0x00, 0x00, 0x00	; (')
+0004d7 180c
+0004d8 3030
+0004d9 1830
+0004da 000c      .db	0x0C, 0x18, 0x30, 0x30, 0x30, 0x18, 0x0C, 0x00	; (()
+0004db 1830
+0004dc 0c0c
+0004dd 180c
+0004de 0030      .db	0x30, 0x18, 0x0C, 0x0C, 0x0C, 0x18, 0x30, 0x00	; ())
+0004df 6600
+0004e0 ff3c
+0004e1 663c
+0004e2 0000      .db	0x00, 0x66, 0x3C, 0xFF, 0x3C, 0x66, 0x00, 0x00	; (*)
+0004e3 1800
+0004e4 7e18
+0004e5 1818
+0004e6 0000      .db	0x00, 0x18, 0x18, 0x7E, 0x18, 0x18, 0x00, 0x00	; (+)
+0004e7 0000
+0004e8 0000
+0004e9 1800
+0004ea 3018      .db	0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0x18, 0x30	; (,)
+0004eb 0000
+0004ec 7e00
+0004ed 0000
+0004ee 0000      .db	0x00, 0x00, 0x00, 0x7E, 0x00, 0x00, 0x00, 0x00	; (-)
+0004ef 0000
+0004f0 0000
+0004f1 1800
+0004f2 0018      .db	0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0x18, 0x00	; (.)
+0004f3 0c06
+0004f4 3018
+0004f5 c060
+0004f6 0080      .db	0x06, 0x0C, 0x18, 0x30, 0x60, 0xC0, 0x80, 0x00	; (/)
+0004f7 6c38
+0004f8 d6c6
+0004f9 6cc6
+0004fa 0038      .db	0x38, 0x6C, 0xC6, 0xD6, 0xC6, 0x6C, 0x38, 0x00	; (0)
+0004fb 3818
+0004fc 1818
+0004fd 1818
+0004fe 007e      .db	0x18, 0x38, 0x18, 0x18, 0x18, 0x18, 0x7E, 0x00	; (1)
+0004ff c67c
+000500 1c06
+000501 6630
+000502 00fe      .db	0x7C, 0xC6, 0x06, 0x1C, 0x30, 0x66, 0xFE, 0x00	; (2)
+000503 c67c
+000504 3c06
+000505 c606
+000506 007c      .db	0x7C, 0xC6, 0x06, 0x3C, 0x06, 0xC6, 0x7C, 0x00	; (3)
+000507 3c1c
+000508 cc6c
+000509 0cfe
+00050a 001e      .db	0x1C, 0x3C, 0x6C, 0xCC, 0xFE, 0x0C, 0x1E, 0x00	; (4)
+00050b c0fe
+00050c fcc0
+00050d c606
+00050e 007c      .db	0xFE, 0xC0, 0xC0, 0xFC, 0x06, 0xC6, 0x7C, 0x00	; (5)
+00050f 6038
+000510 fcc0
+000511 c6c6
+000512 007c      .db	0x38, 0x60, 0xC0, 0xFC, 0xC6, 0xC6, 0x7C, 0x00	; (6)
+000513 c6fe
+000514 180c
+000515 3030
+000516 0030      .db	0xFE, 0xC6, 0x0C, 0x18, 0x30, 0x30, 0x30, 0x00	; (7)
+000517 c67c
+000518 7cc6
+000519 c6c6
+00051a 007c      .db	0x7C, 0xC6, 0xC6, 0x7C, 0xC6, 0xC6, 0x7C, 0x00	; (8)
+00051b c67c
+00051c 7ec6
+00051d 0c06
+00051e 0078      .db	0x7C, 0xC6, 0xC6, 0x7E, 0x06, 0x0C, 0x78, 0x00	; (9)
+00051f 1800
+000520 0018
+000521 1800
+000522 0018      .db	0x00, 0x18, 0x18, 0x00, 0x00, 0x18, 0x18, 0x00	; (:)
+000523 1800
+000524 0018
+000525 1800
+000526 3018      .db	0x00, 0x18, 0x18, 0x00, 0x00, 0x18, 0x18, 0x30	; (;)
+000527 0c06
+000528 3018
+000529 0c18
+00052a 0006      .db	0x06, 0x0C, 0x18, 0x30, 0x18, 0x0C, 0x06, 0x00	; (<)
+00052b 0000
+00052c 007e
+00052d 7e00
+00052e 0000      .db	0x00, 0x00, 0x7E, 0x00, 0x00, 0x7E, 0x00, 0x00	; (=)
+00052f 3060
+000530 0c18
+000531 3018
+000532 0060      .db	0x60, 0x30, 0x18, 0x0C, 0x18, 0x30, 0x60, 0x00	; (>)
+000533 c67c
+000534 180c
+000535 0018
+000536 0018      .db	0x7C, 0xC6, 0x0C, 0x18, 0x18, 0x00, 0x18, 0x00	; (?)
+000537 c67c
+000538 dede
+000539 c0de
+00053a 0078      .db	0x7C, 0xC6, 0xDE, 0xDE, 0xDE, 0xC0, 0x78, 0x00	; (@)
+00053b 6c38
+00053c fec6
+00053d c6c6
+00053e 00c6      .db	0x38, 0x6C, 0xC6, 0xFE, 0xC6, 0xC6, 0xC6, 0x00	; (A)
+00053f 66fc
+000540 7c66
+000541 6666
+000542 00fc      .db	0xFC, 0x66, 0x66, 0x7C, 0x66, 0x66, 0xFC, 0x00	; (B)
+000543 663c
+000544 c0c0
+000545 66c0
+000546 003c      .db	0x3C, 0x66, 0xC0, 0xC0, 0xC0, 0x66, 0x3C, 0x00	; (C)
+000547 6cf8
+000548 6666
+000549 6c66
+00054a 00f8      .db	0xF8, 0x6C, 0x66, 0x66, 0x66, 0x6C, 0xF8, 0x00	; (D)
+00054b 62fe
+00054c 7868
+00054d 6268
+00054e 00fe      .db	0xFE, 0x62, 0x68, 0x78, 0x68, 0x62, 0xFE, 0x00	; (E)
+00054f 62fe
+000550 7868
+000551 6068
+000552 00f0      .db	0xFE, 0x62, 0x68, 0x78, 0x68, 0x60, 0xF0, 0x00	; (F)
+000553 663c
+000554 c0c0
+000555 66ce
+000556 003a      .db	0x3C, 0x66, 0xC0, 0xC0, 0xCE, 0x66, 0x3A, 0x00	; (G)
+000557 c6c6
+000558 fec6
+000559 c6c6
+00055a 00c6      .db	0xC6, 0xC6, 0xC6, 0xFE, 0xC6, 0xC6, 0xC6, 0x00	; (H)
+00055b 183c
+00055c 1818
+00055d 1818
+00055e 003c      .db	0x3C, 0x18, 0x18, 0x18, 0x18, 0x18, 0x3C, 0x00	; (I)
+00055f 0c1e
+000560 0c0c
+000561 cccc
+000562 0078      .db	0x1E, 0x0C, 0x0C, 0x0C, 0xCC, 0xCC, 0x78, 0x00	; (J)
+000563 66e6
+000564 786c
+000565 666c
+000566 00e6      .db	0xE6, 0x66, 0x6C, 0x78, 0x6C, 0x66, 0xE6, 0x00	; (K)
+000567 60f0
+000568 6060
+000569 6662
+00056a 00fe      .db	0xF0, 0x60, 0x60, 0x60, 0x62, 0x66, 0xFE, 0x00	; (L)
+00056b eec6
+00056c fefe
+00056d c6d6
+00056e 00c6      .db	0xC6, 0xEE, 0xFE, 0xFE, 0xD6, 0xC6, 0xC6, 0x00	; (M)
+00056f e6c6
+000570 def6
+000571 c6ce
+000572 00c6      .db	0xC6, 0xE6, 0xF6, 0xDE, 0xCE, 0xC6, 0xC6, 0x00	; (N)
+000573 c67c
+000574 c6c6
+000575 c6c6
+000576 007c      .db	0x7C, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0x7C, 0x00	; (O)
+000577 66fc
+000578 7c66
+000579 6060
+00057a 00f0      .db	0xFC, 0x66, 0x66, 0x7C, 0x60, 0x60, 0xF0, 0x00	; (P)
+00057b c67c
+00057c c6c6
+00057d cec6
+00057e 0e7c      .db	0x7C, 0xC6, 0xC6, 0xC6, 0xC6, 0xCE, 0x7C, 0x0E	; (Q)
+00057f 66fc
+000580 7c66
+000581 666c
+000582 00e6      .db	0xFC, 0x66, 0x66, 0x7C, 0x6C, 0x66, 0xE6, 0x00	; (R)
+000583 663c
+000584 1830
+000585 660c
+000586 003c      .db	0x3C, 0x66, 0x30, 0x18, 0x0C, 0x66, 0x3C, 0x00	; (S)
+000587 7e7e
+000588 185a
+000589 1818
+00058a 003c      .db	0x7E, 0x7E, 0x5A, 0x18, 0x18, 0x18, 0x3C, 0x00	; (T)
+00058b c6c6
+00058c c6c6
+00058d c6c6
+00058e 007c      .db	0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0x7C, 0x00	; (U)
+00058f c6c6
+000590 c6c6
+000591 6cc6
+000592 0038      .db	0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0x6C, 0x38, 0x00	; (V)
+000593 c6c6
+000594 d6c6
+000595 fed6
+000596 006c      .db	0xC6, 0xC6, 0xC6, 0xD6, 0xD6, 0xFE, 0x6C, 0x00	; (W)
+000597 c6c6
+000598 386c
+000599 c66c
+00059a 00c6      .db	0xC6, 0xC6, 0x6C, 0x38, 0x6C, 0xC6, 0xC6, 0x00	; (X)
+00059b 6666
+00059c 3c66
+00059d 1818
+00059e 003c      .db	0x66, 0x66, 0x66, 0x3C, 0x18, 0x18, 0x3C, 0x00	; (Y)
+00059f c6fe
+0005a0 188c
+0005a1 6632
+0005a2 00fe      .db	0xFE, 0xC6, 0x8C, 0x18, 0x32, 0x66, 0xFE, 0x00	; (Z)
+0005a3 303c
+0005a4 3030
+0005a5 3030
+0005a6 003c      .db	0x3C, 0x30, 0x30, 0x30, 0x30, 0x30, 0x3C, 0x00	; ([)
+0005a7 60c0
+0005a8 1830
+0005a9 060c
+0005aa 0002      .db	0xC0, 0x60, 0x30, 0x18, 0x0C, 0x06, 0x02, 0x00	; (\)
+0005ab 0c3c
+0005ac 0c0c
+0005ad 0c0c
+0005ae 003c      .db	0x3C, 0x0C, 0x0C, 0x0C, 0x0C, 0x0C, 0x3C, 0x00	; (])
+0005af 3810
+0005b0 c66c
+0005b1 0000
+0005b2 0000      .db	0x10, 0x38, 0x6C, 0xC6, 0x00, 0x00, 0x00, 0x00	; (^)
+0005b3 0000
+0005b4 0000
+0005b5 0000
+0005b6 ff00      .db	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF	; (_)
+0005b7 1830
+0005b8 000c
+0005b9 0000
+0005ba 0000      .db	0x30, 0x18, 0x0C, 0x00, 0x00, 0x00, 0x00, 0x00	; (`)
+0005bb 0000
+0005bc 0c78
+0005bd cc7c
+0005be 0076      .db	0x00, 0x00, 0x78, 0x0C, 0x7C, 0xCC, 0x76, 0x00	; (a)
+0005bf 60e0
+0005c0 667c
+0005c1 6666
+0005c2 00dc      .db	0xE0, 0x60, 0x7C, 0x66, 0x66, 0x66, 0xDC, 0x00	; (b)
+0005c3 0000
+0005c4 c67c
+0005c5 c6c0
+0005c6 007c      .db	0x00, 0x00, 0x7C, 0xC6, 0xC0, 0xC6, 0x7C, 0x00	; (c)
+0005c7 0c1c
+0005c8 cc7c
+0005c9 cccc
+0005ca 0076      .db	0x1C, 0x0C, 0x7C, 0xCC, 0xCC, 0xCC, 0x76, 0x00	; (d)
+0005cb 0000
+0005cc c67c
+0005cd c0fe
+0005ce 007c      .db	0x00, 0x00, 0x7C, 0xC6, 0xFE, 0xC0, 0x7C, 0x00	; (e)
+0005cf 663c
+0005d0 f860
+0005d1 6060
+0005d2 00f0      .db	0x3C, 0x66, 0x60, 0xF8, 0x60, 0x60, 0xF0, 0x00	; (f)
+0005d3 0000
+0005d4 cc76
+0005d5 7ccc
+0005d6 f80c      .db	0x00, 0x00, 0x76, 0xCC, 0xCC, 0x7C, 0x0C, 0xF8	; (g)
+0005d7 60e0
+0005d8 766c
+0005d9 6666
+0005da 00e6      .db	0xE0, 0x60, 0x6C, 0x76, 0x66, 0x66, 0xE6, 0x00	; (h)
+0005db 0018
+0005dc 1838
+0005dd 1818
+0005de 003c      .db	0x18, 0x00, 0x38, 0x18, 0x18, 0x18, 0x3C, 0x00	; (i)
+0005df 0006
+0005e0 0606
+0005e1 6606
+0005e2 3c66      .db	0x06, 0x00, 0x06, 0x06, 0x06, 0x66, 0x66, 0x3C	; (j)
+0005e3 60e0
+0005e4 6c66
+0005e5 6c78
+0005e6 00e6      .db	0xE0, 0x60, 0x66, 0x6C, 0x78, 0x6C, 0xE6, 0x00	; (k)
+0005e7 1838
+0005e8 1818
+0005e9 1818
+0005ea 003c      .db	0x38, 0x18, 0x18, 0x18, 0x18, 0x18, 0x3C, 0x00	; (l)
+0005eb 0000
+0005ec feec
+0005ed d6d6
+0005ee 00d6      .db	0x00, 0x00, 0xEC, 0xFE, 0xD6, 0xD6, 0xD6, 0x00	; (m)
+0005ef 0000
+0005f0 66dc
+0005f1 6666
+0005f2 0066      .db	0x00, 0x00, 0xDC, 0x66, 0x66, 0x66, 0x66, 0x00	; (n)
+0005f3 0000
+0005f4 c67c
+0005f5 c6c6
+0005f6 007c      .db	0x00, 0x00, 0x7C, 0xC6, 0xC6, 0xC6, 0x7C, 0x00	; (o)
+0005f7 0000
+0005f8 66dc
+0005f9 7c66
+0005fa f060      .db	0x00, 0x00, 0xDC, 0x66, 0x66, 0x7C, 0x60, 0xF0	; (p)
+0005fb 0000
+0005fc cc76
+0005fd 7ccc
+0005fe 1e0c      .db	0x00, 0x00, 0x76, 0xCC, 0xCC, 0x7C, 0x0C, 0x1E	; (q)
+0005ff 0000
+000600 76dc
+000601 6060
+000602 00f0      .db	0x00, 0x00, 0xDC, 0x76, 0x60, 0x60, 0xF0, 0x00	; (r)
+000603 0000
+000604 c07e
+000605 067c
+000606 00fc      .db	0x00, 0x00, 0x7E, 0xC0, 0x7C, 0x06, 0xFC, 0x00	; (s)
+000607 3030
+000608 30fc
+000609 3630
+00060a 001c      .db	0x30, 0x30, 0xFC, 0x30, 0x30, 0x36, 0x1C, 0x00	; (t)
+00060b 0000
+00060c cccc
+00060d cccc
+00060e 0076      .db	0x00, 0x00, 0xCC, 0xCC, 0xCC, 0xCC, 0x76, 0x00	; (u)
+00060f 0000
+000610 c6c6
+000611 6cc6
+000612 0038      .db	0x00, 0x00, 0xC6, 0xC6, 0xC6, 0x6C, 0x38, 0x00	; (v)
+000613 0000
+000614 d6c6
+000615 fed6
+000616 006c      .db	0x00, 0x00, 0xC6, 0xD6, 0xD6, 0xFE, 0x6C, 0x00	; (w)
+000617 0000
+000618 6cc6
+000619 6c38
+00061a 00c6      .db	0x00, 0x00, 0xC6, 0x6C, 0x38, 0x6C, 0xC6, 0x00	; (x)
+00061b 0000
+00061c c6c6
+00061d 7ec6
+00061e fc06      .db	0x00, 0x00, 0xC6, 0xC6, 0xC6, 0x7E, 0x06, 0xFC	; (y)
+00061f 0000
+000620 4c7e
+000621 3218
+000622 007e      .db	0x00, 0x00, 0x7E, 0x4C, 0x18, 0x32, 0x7E, 0x00	; (z)
+000623 180e
+000624 7018
+000625 1818
+000626 000e      .db	0x0E, 0x18, 0x18, 0x70, 0x18, 0x18, 0x0E, 0x00	; ({)
+000627 1818
+000628 1818
+000629 1818
+00062a 0018      .db	0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x00	; (|)
+00062b 1870
+00062c 0e18
+00062d 1818
+00062e 0070      .db	0x70, 0x18, 0x18, 0x0E, 0x18, 0x18, 0x70, 0x00	; (})
+00062f dc76
+000630 0000
+000631 0000
+000632 0000      .db	0x76, 0xDC, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00	; (~)
+000633 1000
+000634 6c38
+000635 c6c6
+000636 00fe      .db	0x00, 0x10, 0x38, 0x6C, 0xC6, 0xC6, 0xFE, 0x00	; (.)
+000637 663e
+000638 fec6
+000639 c6c6
+00063a 00c6      .db	0x3E, 0x66, 0xC6, 0xFE, 0xC6, 0xC6, 0xC6, 0x00	; (.)
+                 
+                 ;Char_129		.db	0xFC, 0x64, 0x60, 0x78, 0x6C, 0x6C, 0xF8, 0x00	; (.)
+                 ;Char_130		.db	0xFC, 0x66, 0x66, 0x7C, 0x66, 0x66, 0xFC, 0x00	; (.)
+                 ;Char_131		.db	0xFC, 0x6C, 0x64, 0x60, 0x60, 0x60, 0xF0, 0x00	; (.)
+                 ;Char_132		.db	0x38, 0x6C, 0x6C, 0x7C, 0x6C, 0xC6, 0xC6, 0x00	; (.)
+                 ;Char_133		.db	0xFE, 0x62, 0x68, 0x78, 0x68, 0x62, 0xFE, 0x00	; (.)
+                 ;Char_134		.db	0xD6, 0xD6, 0x54, 0x7C, 0x54, 0xD6, 0xD6, 0x00	; (.)
+                 ;Char_135		.db	0x7C, 0xC6, 0x06, 0x3C, 0x06, 0xC6, 0x7C, 0x00	; (.)
+                 ;Char_136		.db	0xC6, 0xCE, 0xDE, 0xF6, 0xE6, 0xC6, 0xC6, 0x00	; (.)
+                 ;Char_137		.db	0x6C, 0xC6, 0xCE, 0xDE, 0xF6, 0xE6, 0xC6, 0x00	; (.)
+                 ;Char_138		.db	0xE6, 0x66, 0x6C, 0x78, 0x6C, 0x66, 0xE6, 0x00	; (.)
+                 ;Char_139		.db	0x3E, 0x66, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0x00	; (.)
+                 ;Char_140		.db	0xC6, 0xE6, 0xF6, 0xDE, 0xCE, 0xC6, 0xC6, 0x00	; (.)
+                 ;Char_141		.db	0xC6, 0xC6, 0xC6, 0xFE, 0xC6, 0xC6, 0xC6, 0x00	; (.)
+                 ;Char_142		.db	0x7C, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0x7C, 0x00	; (.)
+                 ;Char_143		.db	0xFE, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0x00	; (.)
+                 ;Char_144		.db	0xFC, 0x66, 0x66, 0x7C, 0x60, 0x60, 0xF0, 0x00	; (.)
+                 ;Char_145		.db	0x3C, 0x66, 0xC0, 0xC0, 0xC0, 0x66, 0x3C, 0x00	; (.)
+                 ;Char_146		.db	0x7E, 0x7E, 0x5A, 0x18, 0x18, 0x18, 0x3C, 0x00	; (.)
+                 ;Char_147		.db	0xC6, 0xC6, 0xC6, 0xC6, 0x7E, 0x06, 0xFC, 0x00	; (.)
+                 ;Char_148		.db	0x3C, 0x18, 0x3C, 0x5A, 0x5A, 0x3C, 0x18, 0x3C	; (.)
+                 ;Char_149		.db	0xC6, 0xC6, 0x6C, 0x38, 0x6C, 0xC6, 0xC6, 0x00	; (.)
+                 ;Char_150		.db	0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xFE, 0x06	; (.)
+                 ;Char_151		.db	0xC6, 0xC6, 0xC6, 0x7E, 0x06, 0x06, 0x06, 0x00	; (.)
+                 ;Char_152		.db	0xD6, 0xD6, 0xD6, 0xD6, 0xD6, 0xD6, 0xFE, 0x00	; (.)
+                 ;Char_153		.db	0xD6, 0xD6, 0xD6, 0xD6, 0xD6, 0xD6, 0xFE, 0x06	; (.)
+                 ;Char_154		.db	0xF8, 0xB0, 0xB0, 0x3C, 0x36, 0x36, 0x7C, 0x00	; (.)
+                 ;Char_155		.db	0xC6, 0xC6, 0xC6, 0xF6, 0xDE, 0xDE, 0xF6, 0x00	; (.)
+                 ;Char_156		.db	0xFC, 0x30, 0x30, 0x3C, 0x36, 0x36, 0x7C, 0x00	; (.)
+                 ;Char_157		.db	0x7C, 0xC6, 0x16, 0x1E, 0x16, 0xC6, 0x7C, 0x00	; (.)
+                 ;Char_158		.db	0xCE, 0xDB, 0xDB, 0xFB, 0xDB, 0xDB, 0xCE, 0x00	; (.)
+                 ;Char_159		.db	0x7E, 0xCC, 0xCC, 0x7C, 0x6C, 0xCC, 0xCE, 0x00	; (.)
+                 ;Char_160		.db	0x00, 0x00, 0x78, 0x0C, 0x7C, 0xCC, 0x76, 0x00	; (.)
+                 ;Char_161		.db	0x0C, 0x38, 0x60, 0x7C, 0x66, 0x66, 0x3C, 0x00	; (.)
+                 ;Char_162		.db	0x00, 0x00, 0xFC, 0x66, 0x7C, 0x66, 0xFC, 0x00	; (.)
+                 ;Char_163		.db	0x00, 0x00, 0xFC, 0x64, 0x60, 0x60, 0xF0, 0x00	; (.)
+                 ;Char_164		.db	0x00, 0x1C, 0x3C, 0x6C, 0xCC, 0xFE, 0xC6, 0x00	; (.)
+                 ;Char_165		.db	0x00, 0x00, 0x7C, 0xC6, 0xFE, 0xC0, 0x7C, 0x00	; (.)
+                 ;Char_166		.db	0x00, 0x00, 0xD6, 0x54, 0x7C, 0x54, 0xD6, 0x00	; (.)
+                 ;Char_167		.db	0x00, 0x00, 0x7C, 0xC6, 0x1C, 0xC6, 0x7C, 0x00	; (.)
+                 ;Char_168		.db	0x00, 0x00, 0xCE, 0xDE, 0xF6, 0xE6, 0xC6, 0x00	; (.)
+                 ;Char_169		.db	0x00, 0x6C, 0xCE, 0xDE, 0xF6, 0xE6, 0xC6, 0x00	; (.)
+                 ;Char_170		.db	0x00, 0x00, 0xE6, 0x6C, 0x78, 0x6C, 0xE6, 0x00	; (.)
+                 ;Char_171		.db	0x00, 0x00, 0x1E, 0x36, 0x66, 0x66, 0x66, 0x00	; (.)
+                 ;Char_172		.db	0x00, 0x00, 0xC6, 0xEE, 0xFE, 0xD6, 0xC6, 0x00	; (.)
+                 ;Char_173		.db	0x00, 0x00, 0xC6, 0xC6, 0xFE, 0xC6, 0xC6, 0x00	; (.)
+                 ;Char_174		.db	0x00, 0x00, 0x7C, 0xC6, 0xC6, 0xC6, 0x7C, 0x00	; (.)
+                 ;Char_175		.db	0x00, 0x00, 0x7E, 0x66, 0x66, 0x66, 0x66, 0x00	; (.)
+                 ;Char_176		.db	0x22, 0x88, 0x22, 0x88, 0x22, 0x88, 0x22, 0x88	; (.)
+                 ;Char_177		.db	0x55, 0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55, 0xAA	; (.)
+                 ;Char_178		.db	0x77, 0xDD, 0x77, 0xDD, 0x77, 0xDD, 0x77, 0xDD	; (.)
+                 ;Char_179		.db	0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18	; (.)
+                 ;Char_180		.db	0x18, 0x18, 0x18, 0x18, 0xF8, 0x18, 0x18, 0x18	; (.)
+                 ;Char_181		.db	0x18, 0x18, 0xF8, 0x18, 0xF8, 0x18, 0x18, 0x18	; (.)
+                 ;Char_182		.db	0x36, 0x36, 0x36, 0x36, 0xF6, 0x36, 0x36, 0x36	; (.)
+                 ;Char_183		.db	0x00, 0x00, 0x00, 0x00, 0xFE, 0x36, 0x36, 0x36	; (.)
+                 ;Char_184		.db	0x00, 0x00, 0xF8, 0x18, 0xF8, 0x18, 0x18, 0x18	; (.)
+                 ;Char_185		.db	0x36, 0x36, 0xF6, 0x06, 0xF6, 0x36, 0x36, 0x36	; (.)
+                 ;Char_186		.db	0x36, 0x36, 0x36, 0x36, 0x36, 0x36, 0x36, 0x36	; (.)
+                 ;Char_187		.db	0x00, 0x00, 0xFE, 0x06, 0xF6, 0x36, 0x36, 0x36	; (.)
+                 ;Char_188		.db	0x36, 0x36, 0xF6, 0x06, 0xFE, 0x00, 0x00, 0x00	; (.)
+                 ;Char_189		.db	0x36, 0x36, 0x36, 0x36, 0xFE, 0x00, 0x00, 0x00	; (.)
+                 ;Char_190		.db	0x18, 0x18, 0xF8, 0x18, 0xF8, 0x00, 0x00, 0x00	; (.)
+                 ;Char_191		.db	0x00, 0x00, 0x00, 0x00, 0xF8, 0x18, 0x18, 0x18	; (.)
+                 ;Char_192		.db	0x18, 0x18, 0x18, 0x18, 0x1F, 0x00, 0x00, 0x00	; (.)
+                 ;Char_193		.db	0x18, 0x18, 0x18, 0x18, 0xFF, 0x00, 0x00, 0x00	; (.)
+                 ;Char_194		.db	0x00, 0x00, 0x00, 0x00, 0xFF, 0x18, 0x18, 0x18	; (.)
+                 ;Char_195		.db	0x18, 0x18, 0x18, 0x18, 0x1F, 0x18, 0x18, 0x18	; (.)
+                 ;Char_196		.db	0x00, 0x00, 0x00, 0x00, 0xFF, 0x00, 0x00, 0x00	; (.)
+                 ;Char_197		.db	0x18, 0x18, 0x18, 0x18, 0xFF, 0x18, 0x18, 0x18	; (.)
+                 ;Char_198		.db	0x18, 0x18, 0x1F, 0x18, 0x1F, 0x18, 0x18, 0x18	; (.)
+                 ;Char_199		.db	0x36, 0x36, 0x36, 0x36, 0x37, 0x36, 0x36, 0x36	; (.)
+                 ;Char_200		.db	0x36, 0x36, 0x37, 0x30, 0x3F, 0x00, 0x00, 0x00	; (.)
+                 ;Char_201		.db	0x00, 0x00, 0x3F, 0x30, 0x37, 0x36, 0x36, 0x36	; (.)
+                 ;Char_202		.db	0x36, 0x36, 0xF7, 0x00, 0xFF, 0x00, 0x00, 0x00	; (.)
+                 ;Char_203		.db	0x00, 0x00, 0xFF, 0x00, 0xF7, 0x36, 0x36, 0x36	; (.)
+                 ;Char_204		.db	0x36, 0x36, 0x37, 0x30, 0x37, 0x36, 0x36, 0x36	; (.)
+                 ;Char_205		.db	0x00, 0x00, 0xFF, 0x00, 0xFF, 0x00, 0x00, 0x00	; (.)
+                 ;Char_206		.db	0x36, 0x36, 0xF7, 0x00, 0xF7, 0x36, 0x36, 0x36	; (.)
+                 ;Char_207		.db	0x18, 0x18, 0xFF, 0x00, 0xFF, 0x00, 0x00, 0x00	; (.)
+                 ;Char_208		.db	0x36, 0x36, 0x36, 0x36, 0xFF, 0x00, 0x00, 0x00	; (.)
+                 ;Char_209		.db	0x00, 0x00, 0xFF, 0x00, 0xFF, 0x18, 0x18, 0x18	; (.)
+                 ;Char_210		.db	0x00, 0x00, 0x00, 0x00, 0xFF, 0x36, 0x36, 0x36	; (.)
+                 ;Char_211		.db	0x36, 0x36, 0x36, 0x36, 0x3F, 0x00, 0x00, 0x00	; (.)
+                 ;Char_212		.db	0x18, 0x18, 0x1F, 0x18, 0x1F, 0x00, 0x00, 0x00	; (.)
+                 ;Char_213		.db	0x00, 0x00, 0x1F, 0x18, 0x1F, 0x18, 0x18, 0x18	; (.)
+                 ;Char_214		.db	0x00, 0x00, 0x00, 0x00, 0x3F, 0x36, 0x36, 0x36	; (.)
+                 ;Char_215		.db	0x36, 0x36, 0x36, 0x36, 0xFF, 0x36, 0x36, 0x36	; (.)
+                 ;Char_216		.db	0x18, 0x18, 0xFF, 0x18, 0xFF, 0x18, 0x18, 0x18	; (.)
+                 ;Char_217		.db	0x18, 0x18, 0x18, 0x18, 0xF8, 0x00, 0x00, 0x00	; (.)
+                 ;Char_218		.db	0x00, 0x00, 0x00, 0x00, 0x1F, 0x18, 0x18, 0x18	; (.)
+                 ;Char_219		.db	0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF	; (.)
+                 ;Char_220		.db	0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF	; (.)
+                 ;Char_221		.db	0xF0, 0xF0, 0xF0, 0xF0, 0xF0, 0xF0, 0xF0, 0xF0	; (.)
+                 ;Char_222		.db	0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F	; (.)
+                 ;Char_223		.db	0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00	; (.)
+                 ;Char_224		.db	0x00, 0x00, 0xDC, 0x66, 0x66, 0x7C, 0x60, 0xF0	; (.)
+                 ;Char_225		.db	0x00, 0x00, 0x7C, 0xC6, 0xC0, 0xC6, 0x7C, 0x00	; (.)
+                 ;Char_226		.db	0x00, 0x00, 0x7E, 0x5A, 0x18, 0x18, 0x3C, 0x00	; (.)
+                 ;Char_227		.db	0x00, 0x00, 0xC6, 0xC6, 0xC6, 0x7E, 0x06, 0xFC	; (.)
+                 ;Char_228		.db	0x18, 0x18, 0x3C, 0x5A, 0x5A, 0x3C, 0x18, 0x18	; (.)
+                 ;Char_229		.db	0x00, 0x00, 0xC6, 0x6C, 0x38, 0x6C, 0xC6, 0x00	; (.)
+                 ;Char_230		.db	0x00, 0x00, 0xCC, 0xCC, 0xCC, 0xCC, 0xFE, 0x06	; (.)
+                 ;Char_231		.db	0x00, 0x00, 0xC6, 0xC6, 0x7E, 0x06, 0x06, 0x00	; (.)
+                 ;Char_232		.db	0x00, 0x00, 0xD6, 0xD6, 0xD6, 0xD6, 0xFE, 0x00	; (.)
+                 ;Char_233		.db	0x00, 0x00, 0xD6, 0xD6, 0xD6, 0xD6, 0xFE, 0x06	; (.)
+                 ;Char_234		.db	0x00, 0x00, 0xF8, 0xB0, 0x3C, 0x36, 0x7C, 0x00	; (.)
+                 ;Char_235		.db	0x00, 0x00, 0xC6, 0xC6, 0xF6, 0xDE, 0xF6, 0x00	; (.)
+                 ;Char_236		.db	0x00, 0x00, 0xFC, 0x30, 0x3C, 0x36, 0x7C, 0x00	; (.)
+                 ;Char_237		.db	0x00, 0x00, 0x7C, 0xC6, 0x1E, 0xC6, 0x7C, 0x00	; (.)
+                 ;Char_238		.db	0x00, 0x00, 0xCE, 0xDB, 0xFB, 0xDB, 0xCE, 0x00	; (.)
+                 ;Char_239		.db	0x00, 0x00, 0x7E, 0xCC, 0x7C, 0x6C, 0xCE, 0x00	; (.)
+                 ;Char_240		.db	0x6C, 0x00, 0xFE, 0x62, 0x78, 0x62, 0xFE, 0x00	; (.)
+                 ;Char_241		.db	0x6C, 0x00, 0x7C, 0xC6, 0xFE, 0xC0, 0x7C, 0x00	; (.)
+                 ;Char_242		.db	0x7C, 0xC6, 0xD0, 0xF0, 0xD0, 0xC6, 0x7C, 0x00	; (.)
+                 ;Char_243		.db	0x00, 0x00, 0x7C, 0xC6, 0xF0, 0xC6, 0x7C, 0x00	; (.)
+                 ;Char_244		.db	0x66, 0x00, 0x3C, 0x18, 0x18, 0x18, 0x3C, 0x00	; (.)
+                 ;Char_245		.db	0x6C, 0x00, 0x38, 0x18, 0x18, 0x18, 0x3C, 0x00	; (.)
+                 ;Char_246		.db	0xC6, 0x6C, 0xD6, 0xC6, 0x7E, 0x06, 0xFC, 0x00	; (.)
+                 ;Char_247		.db	0xC6, 0x6C, 0x10, 0xC6, 0xC6, 0x7E, 0x06, 0xFC	; (.)
+                 ;Char_248		.db	0x38, 0x6C, 0x6C, 0x38, 0x00, 0x00, 0x00, 0x00	; (.)
+                 ;Char_249		.db	0x00, 0x00, 0x00, 0x18, 0x18, 0x00, 0x00, 0x00	; (.)
+                 ;Char_250		.db	0x00, 0x00, 0x00, 0x18, 0x00, 0x00, 0x00, 0x00	; (.)
+                 ;Char_251		.db	0x03, 0x03, 0x06, 0x06, 0xC6, 0x6C, 0x3C, 0x18	; (.)
+                 ;Char_252		.db	0xCF, 0xED, 0xFF, 0xDC, 0xCF, 0xCC, 0xCC, 0x00	; (.)
+                 ;Char_253		.db	0xC6, 0x7C, 0xC6, 0xC6, 0xC6, 0x7C, 0xC6, 0x00	; (.)
+                 ;Char_254		.db	0x00, 0x00, 0x3C, 0x3C, 0x3C, 0x3C, 0x00, 0x00	; (.)
+                 ;Char_255		.db	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00	; (.)
+                 
+                 month_len:
+00063b 2932
+00063c 3132
+00063d 3132
+00063e 3232
+00063f 3231
+000640 3231      	.db 0x32,0x29,0x32,0x31,0x32,0x31,0x32,0x32,0x31,0x32,0x31,0x32
+                 
+                 ; Символьные константы
+                 month_names:
+000641 614a
+000642 006e      	.db "Jan",0x00
+000643 6546
+000644 0062      	.db "Feb",0x00
+000645 614d
+000646 0072      	.db "Mar",0x00
+000647 7041
+000648 0072      	.db "Apr",0x00
+000649 614d
+00064a 0079      	.db "May",0x00
+00064b 754a
+00064c 006e      	.db "Jun",0x00
+00064d 754a
+00064e 006c      	.db "Jul",0x00
+00064f 7541
+000650 0067      	.db "Aug",0x00
+000651 6553
+000652 0070      	.db "Sep",0x00
+000653 634f
+000654 0074      	.db "Oct",0x00
+000655 6f4e
+000656 0076      	.db "Nov",0x00
+000657 6544
+000658 0063      	.db "Dec",0x00
+                 
+                 week_day_names:
+000659 6f4d
+00065a 646e
+00065b 7961
+F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm(792): warning: .cseg .db misalignment - padding zero byte
+00065c 0000      mon:	.db "Monday",0x00
+00065d 7554
+00065e 7365
+00065f 6164
+000660 0079      tue:	.db "Tuesday",0x00
+000661 6557
+000662 6e64
+000663 7365
+000664 6164
+000665 0079      wed:	.db "Wednesday",0x00
+000666 6854
+000667 7275
+000668 6473
+000669 7961
+F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm(795): warning: .cseg .db misalignment - padding zero byte
+00066a 0000      thu:	.db "Thursday",0x00
+00066b 7246
+00066c 6469
+00066d 7961
+F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm(796): warning: .cseg .db misalignment - padding zero byte
+00066e 0000      fri:	.db "Friday",0x00
+00066f 6153
+000670 7574
+000671 6472
+000672 7961
+F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm(797): warning: .cseg .db misalignment - padding zero byte
+000673 0000      sat:	.db "Saturday",0x00
+000674 7553
+000675 646e
+000676 7961
+F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm(798): warning: .cseg .db misalignment - padding zero byte
+000677 0000      sun:	.db "Sunday",0x00
+                 
+                 week_day_table:
+000678 0cb2
+000679 0cba
+00067a 0cc2
+00067b 0ccc
+00067c 0cd6
+00067d 0cde
+00067e 0ce8      	.dw mon<<1, tue<<1, wed<<1, thu<<1, fri<<1, sat<<1, sun<<1
+                 
+                 week_day_center_coo:
+                 ; TODO
+                 
+                 corr_names:
+00067f 4f48
+000680 5255
+000681 003a      hr:	.db "HOUR:",0x00
+000682 494d
+000683 554e
+000684 4554
+000685 003a      mn:	.db "MINUTE:",0x00
+000686 4553
+000687 4f43
+000688 444e
+000689 003a      sc:	.db "SECOND:",0x00
+00068a 4144
+00068b 3a59
+F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm(810): warning: .cseg .db misalignment - padding zero byte
+00068c 0000      dy:	.db "DAY:",0x00
+00068d 4144
+00068e 2059
+00068f 464f
+000690 5720
+000691 4545
+000692 3a4b
+F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm(811): warning: .cseg .db misalignment - padding zero byte
+000693 0000      dow:	.db "DAY OF WEEK:",0x00
+000694 4f4d
+000695 544e
+000696 3a48
+F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm(812): warning: .cseg .db misalignment - padding zero byte
+000697 0000      mo:	.db "MONTH:",0x00
+000698 4559
+000699 5241
+F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm(813): warning: .cseg .db misalignment - padding zero byte
+00069a 0000      yr:	.db "YEAR",0x00
+                 
+                 corr_nam_table:
+00069b 0cfe
+00069c 0d04
+00069d 0d0c
+00069e 0d14
+00069f 0d1a
+0006a0 0d28
+0006a1 0d30      	.dw hr<<1,mn<<1,sc<<1,dy<<1,dow<<1,mo<<1,yr<<1
+                 
+                 corr_table:
+0006a2 0103
+0006a3 0102
+0006a4 0101
+0006a5 0104
+0006a6 0108
+0006a7 0105
+0006a8 0106      	.dw hour, minute, second, day, day_of_week, month, year
+                 
+                 corr_max_value:
+0006a9 0024
+0006aa 0060
+0006ab 0060
+0006ac 0000
+0006ad 0007
+0006ae 0012
+0006af 9999      	.dw 0x24, 0x60, 0x60, 0x00, 0x07, 0x12, 0x9999
+                 
+                 ;calib_str:
+                 ;	.db "calibration",0x00
+                 ;-------- Конец cseg
+                 
+                 .dseg ; Сегмент данных ОЗУ
+                 .org 0x100
+                 ; Дата-время (BCD)
+000100 00        	dsecond: .db 0x00
+000101 00        	second: .db 0x00
+000102 00        	minute: .db 0x00
+000103 00        	hour: .db 0x00
+000104 00        	day: .db 0x00
+000105 00        	month: .db 0x00
+000106 00 00     	year: .dw 0x00
+000108 00        	day_of_week: .db 0x00
+                 
+000109 00        	tim_ovf_val: .db 0x00	; Длительность 5мс интервала (более точная корректировка)
+                 
+                 	; цифровая настройка хода (очень точная корректировка)
+00010a 00 00
+00010c 00 00     	corr_period: .dd 0x00000000	; период, по прошествии которого осуществится корректировка (десятые доли секунды)
+00010e 00 00
+000110 00 00     	corr_per_cnt: .dd 0x00000000
+000112 00 00     	corr_value: .dw 0x0000		; корректирующее значение (BCD) lsb - десятые доли секунд, msb - секунды, старший бит lsb - знак коррекции (+/-)
+                 
+000114 00        	sec_duration: .db 0x00	; Длительность секунды (грубая корректировка)
+000115 00        	sec_cnt: .db 0x00
+                 
+                 ;-------- Конец dseg
+                 
+                 .eseg ; Сегмент eeprom
+                 
+000000 14        sec_dur_eep: .db 0x14
+                 
+                 ;-------- Конец eseg
+
+
+RESOURCE USE INFORMATION
+------------------------
+
+Notice:
+The register and instruction counts are symbol table hit counts,
+and hence implicitly used resources are not counted, eg, the
+'lpm' instruction without operands implicitly uses r0 and z,
+none of which are counted.
+
+x,y,z are separate entities in the symbol table and are
+counted separately from r26..r31 here.
+
+.dseg memory usage only counts static data declared with .byte
+
+ATmega48PA register use summary:
+r0 :   0 r1 :   0 r2 :  20 r3 :  17 r4 :   7 r5 :   7 r6 :  13 r7 :  10 
+r8 :  11 r9 :   3 r10:   4 r11:   0 r12:   4 r13:  13 r14:   4 r15:   0 
+r16: 442 r17:  75 r18:   6 r19:  10 r20:  34 r21:   9 r22:   1 r23:   1 
+r24:  19 r25:   1 r26:   1 r27:   1 r28:   1 r29:   1 r30:  62 r31:  53 
+x  :   0 y  :   0 z  :  58 
+Registers used: 29 out of 35 (82.9%)
+
+ATmega48PA instruction use summary:
+.lds  :   0 .sts  :   0 adc   :   6 add   :  18 adiw  :   4 and   :   5 
+andi  :   8 asr   :   0 bclr  :   0 bld   :   0 brbc  :   0 brbs  :   0 
+brcc  :   1 brcs  :   0 break :   0 breq  :  13 brge  :   0 brhc  :   0 
+brhs  :   1 brid  :   0 brie  :   0 brlo  :   6 brlt  :   0 brmi  :   0 
+brne  :  25 brpl  :   0 brsh  :   0 brtc  :   0 brts  :   0 brvc  :   0 
+brvs  :   0 bset  :   0 bst   :   0 cbi   :  35 cbr   :   0 clc   :   0 
+clh   :   0 cli   :   2 cln   :   0 clr   :  37 cls   :   0 clt   :   0 
+clv   :   0 clz   :   0 com   :   2 cp    :   7 cpc   :   0 cpi   :  23 
+cpse  :   0 dec   :  17 eor   :   1 fmul  :   0 fmuls :   0 fmulsu:   0 
+icall :   0 ijmp  :   0 in    :   7 inc   :   7 ld    :  22 ldd   :   0 
+ldi   : 198 lds   :   5 lpm   :  20 lsl   :  14 lsr   :   9 mov   :  66 
+movw  :   0 mul   :   0 muls  :   0 mulsu :   0 neg   :   0 nop   :  64 
+or    :   3 ori   :   3 out   :  18 pop   :  78 push  :  77 rcall : 181 
+ret   :  25 reti  :   2 rjmp  :  68 rol   :   6 ror   :   0 sbc   :   0 
+sbci  :   0 sbi   :  38 sbic  :   0 sbis  :   4 sbiw  :   5 sbr   :   0 
+sbrc  :  15 sbrs  :   4 sec   :   0 seh   :   0 sei   :   2 sen   :   0 
+ser   :   0 ses   :   0 set   :   0 sev   :   0 sez   :   0 sleep :   1 
+spm   :   0 st    :  23 std   :   0 sts   :   9 sub   :   0 subi  :  10 
+swap  :   1 tst   :   3 wdr   :   1 
+Instructions used: 51 out of 111 (45.9%)
+
+ATmega48PA memory use summary [bytes]:
+Segment   Begin    End      Code   Data   Used    Size   Use%
+---------------------------------------------------------------
+[.cseg] 0x000000 0x000d60   2414   1010   3424    4096  83.6%
+[.dseg] 0x000100 0x000116      0     22     22     512   4.3%
+[.eseg] 0x000000 0x000001      0      1      1     256   0.4%
+
+Assembly complete, 0 errors, 9 warnings
