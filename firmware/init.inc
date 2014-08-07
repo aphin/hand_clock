@@ -81,7 +81,6 @@ wl1:
 	clr r20
 	clr r21
 	clr r22
-	clr r23
 	clr r24
 	clr r25
 	clr r26
@@ -98,6 +97,7 @@ wl1:
 	ldi tmp, 0x00
 	out GPIOR0, tmp
 	out GPIOR1, tmp
+	ldi refresh, 0b00011111
 ;-------- Инициализируем значения в памяти
 	ldi tmp, 0x00
 	ldi ZH, high(dsecond)

@@ -120,6 +120,10 @@ drst:
 	lpm tmp, Z+
 	tst tmp
 	breq drst_end
+	cpi tmp, 0x80
+	brlo dr_ansi
+	subi tmp, 0x40	; Перевод из Win-1251 в CP866 для заглавных букв (а других русских и нет тут :-)
+dr_ansi:
 	rcall LCD_DrawChar
 	add lcd_x, r20
 	rjmp drst

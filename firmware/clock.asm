@@ -1,6 +1,7 @@
 ; Фирмварь для наручных часов на ATMEGA48PA, дисплей Siemens C60, 6 кнопок
 ; TODO
-; 2. Продумать RLE для экономии места во Flash и возможности рисования спрайтов
+; 1. Сделать более наглядную настройку времени (с подсветкой редактируемой величины)
+; 2. Сделать регистр флагов обновления, чтобы не выполнять лишние рисования
 
 
 ;#define DEBUG
@@ -84,72 +85,25 @@ wtr:
 	ldi tmp, 28
 	mov lcd_y, tmp
 	rcall LCD_DrawTime
-	ldi tmp, 0x05
-	mov lcd_y, tmp
-	mov lcd_x, tmp
 	rcall LCD_DrawDate
 	rjmp kbd_hand
-; Режим 1 - рисуем редактируемую величину, подсветка включена, режим Normal, рисуем с интервалом 0.1 сек
+; Режим 1 - рисуем дату-время, подсветка включена, режим Normal, рисуем с интервалом 0.1 сек
 m_mode1:
 	cpi mode, 0x01
 	brne m_mode2
 	sbis GPIOR0, 2
 	rjmp kbd_hand
+	
+;	ldi refresh, 0b00011111
 
-	LAPZ corr_nam_table
-	rcall mt_offset
-	lpm tmp, Z+
-	lpm tmp1, Z
-	mov ZL, tmp
-	mov ZH, tmp1
-	ldi tmp, 0x05
-	mov lcd_y, tmp
+	ldi tmp, 3
 	mov lcd_x, tmp
-	ldi tmp, 0x01
-	mov lcd_mx, tmp
-	mov lcd_my, tmp
-	rcall LCD_DrawStringPM	; Отображаем название редактируемой величины
-	ldi tmp, 0x15
+	ldi tmp, 28
 	mov lcd_y, tmp
-	clr tmp
-	mov lcd_x, tmp
-	ldi tmp, 4
-	cp mode_tmp, tmp
-	breq dr_day_wk
-; Рисуем часы, секунды, минуты, дни, месяцы
-	ldi tmp, 0x03
-	mov lcd_mx, tmp
-	mov lcd_my, tmp
-	LAPZ corr_table
-	rcall mt_offset
-	lpm tmp, Z+
-	lpm tmp1, Z
-	mov ZL, tmp
-	mov ZH, tmp1
-	ldi tmp, 6
-	cp mode_tmp, tmp
-	breq dr_year
-	ld tmp, Z
-	rcall LCD_DrawBCD
-	rjmp kbd_hand
-dr_day_wk:
-; Рисуем дни недели
-	ldi tmp, 0x01
-	mov lcd_mx, tmp
-	mov lcd_my, tmp
-	ldi tmp1, 8
-	ldi tmp, 9*8+1
-	rcall LCD_DrawBkgBar
-	rcall LCD_DrawDayOfWeek
-	rjmp kbd_hand
-dr_year:
-; Рисуем год
-	adiw ZL, 0x01
-	ld tmp, Z
-	rcall LCD_DrawBCD
-	sbiw ZL, 0x01
-	ld tmp, Z
-	rcall LCD_DrawBCD
+
+	rcall LCD_DrawTime
+	rcall LCD_DrawDate
+	
 	rjmp kbd_hand
 m_mode2:				
 
@@ -183,11 +137,11 @@ m_kbd_mode1_cont:
 	clr mode
 	rcall LCD_Clear
 	rcall LCD_IdleOn
+	ori refresh, 0b00011111
 	LED_OFF
 nx_b_m1:	; Кнопки 4, 1 (средние слева и справа соответственно) - выбор редактируемой величины
 	sbrc kbd_press, 4
 	rjmp nx_b1_m1
-	rcall LCD_Clear
 	tst mode_tmp
 	breq m_mdtmp_max_set
 	dec mode_tmp
@@ -197,7 +151,6 @@ m_mdtmp_max_set:
 nx_b1_m1:
 	sbrc kbd_press, 1
 	rjmp nx_b2_m1
-	rcall LCD_Clear
 	inc mode_tmp
 	cpi mode_tmp, 0x07
 	brne nx_b2_m1
@@ -210,6 +163,26 @@ nx_b2_m1: ; Кнопки 0, 2 (справа верхняя и нижняя соответственно) - изменение выб
 	rjmp nx_b3_m1
 
 nx_b2_cont:
+; надо установить refresh для корректируемой величины
+	cpi mode_tmp, 0x02	; для секунд не устанавливаем
+	breq nx_b2_nrfrsh
+	cpi mode_tmp, 0x01
+	brne nx_b2_rfn
+	ori refresh, 0x01	; для минут
+	rjmp nx_b2_nrfrsh
+nx_b2_rfn:
+	cpi mode_tmp, 0x00
+	brne nx_b2_rfn1
+	ori refresh, 0x02	; для часов
+	rjmp nx_b2_nrfrsh
+nx_b2_rfn1:
+	cpi mode_tmp, 0x03
+	brne nx_b2_rfn2
+	ori refresh, 0x04	; для дней/дней недели
+	rjmp nx_b2_nrfrsh
+
+
+nx_b2_nrfrsh:
 	LAPZ corr_table	; Таблица адресов корректируемых величин (для удобства)
 	rcall mt_offset
 
@@ -470,33 +443,76 @@ LCD_DrawTime:
 	mov lcd_mx, tmp
 	ldi tmp, 3
 	mov lcd_my, tmp
+	ldi tmp1, 0xFF
 
-	ldi tmp1, 2
-	ldi ZH, high(hour)	; рисуем часы
-	ldi ZL, low(hour)
-drw_clk:
+	sbrs refresh, 1
+	rjmp drw_clk_minute_skip
+	andi refresh, 0b11111101
+	LASZ hour	; рисуем часы
 	ld tmp, Z
+	push bkg_color
+	push frg_color
+	cpi mode, 0x01
+	brne drw_clk_hrd
+	cpi mode_tmp, 0x00
+	brne drw_clk_hrd
+	mov bkg_color, tmp1
+	clr frg_color
+drw_clk_hrd:
 	rcall LCD_DrawBCD
-	cpi tmp1, 0x01
-	breq drw_clk_sec
+	pop frg_color
+	pop bkg_color
 	ldi tmp,':'
 	rcall LCD_DrawChar
+	rjmp drw_clk_minute
+drw_clk_minute_skip:
+	ldi tmp, 32
+	add lcd_x, tmp
+drw_clk_minute:
+	sbrs refresh, 0
+	rjmp drw_clk_sec_skip
+	andi refresh, 0b11111110
 	ldi tmp, 16
 	add lcd_x, tmp
-	sbiw ZL, 1
-	dec tmp1
-	brne drw_clk
-
-drw_clk_sec:
+	LASZ minute
+	ld tmp, Z
+	push bkg_color
+	push frg_color
+	cpi mode, 0x01
+	brne drw_clk_mnd
+	cpi mode_tmp, 0x01
+	brne drw_clk_mnd
+	mov bkg_color, tmp1
+	clr frg_color
+drw_clk_mnd:
+	rcall LCD_DrawBCD
+	pop frg_color
+	pop bkg_color
+	rjmp drw_clk_sec
+drw_clk_sec_skip:
+	ldi tmp, 32+16
+	add lcd_x, tmp
+drw_clk_sec:	; рисуем секунды
 	ldi tmp, 1
 	mov lcd_mx, tmp
 	mov lcd_my, tmp
 	ldi tmp, 14
 	add lcd_y, tmp
 
-	sbiw ZL, 1
+	LASZ second
 	ld tmp, Z
+	push bkg_color
+	push frg_color
+	cpi mode, 0x01
+	brne drw_clk_sed
+	cpi mode_tmp, 0x02
+	brne drw_clk_sed
+	mov bkg_color, tmp1
+	clr frg_color
+drw_clk_sed:
 	rcall LCD_DrawBCD
+	pop frg_color
+	pop bkg_color
 
 	pop tmp1
 	pop tmp
@@ -528,13 +544,17 @@ tdi_cnt1:
 tdi_cnt2:
 	clr tmp
 	sbi GPIOR0, 4
+	ori refresh, 0b00000001
 	st Z+, tmp
 	rcall BCD_Inc ; минуты
 	ld tmp, Z
 	cpi tmp, 0x60
-	brne tdi_end
+	breq tdi_cnt3
+	rjmp tdi_end
+tdi_cnt3:
 	clr tmp
 	sbi GPIOR0, 5
+	ori refresh, 0b00000010
 	st Z+, tmp
 	rcall BCD_Inc ; часы
 	ld tmp, Z
@@ -542,6 +562,7 @@ tdi_cnt2:
 	brne tdi_end
 	clr tmp
 	sbi GPIOR0, 6
+	ori refresh, 0b00000100
 	st Z+, tmp
 	
 	push ZH	; дни недели
@@ -585,11 +606,13 @@ tdi_cnt:
 	brne tdi_end
 	ldi tmp, 0x01
 	sbi GPIOR0, 7
+	ori refresh, 0b00001000
 	st Z+, tmp
 	rcall BCD_Inc ; месяцы
 	ld tmp, Z
 	cpi tmp, 0x13
 	brne tdi_end
+	ori refresh, 0b00010000
 	ldi tmp, 0x01
 	st Z+, tmp
 	rcall BCD_Inc ; годы
@@ -698,17 +721,60 @@ LCD_DrawDate:
 	push tmp
 	push tmp1
 
+	ldi tmp1, 0xFF
+
 	ldi tmp, 1
 	mov lcd_mx, tmp
 	mov lcd_my, tmp
 
-	ldi ZH, high(day)	; рисуем дату
-	ldi ZL, low(day)
+	ldi tmp, 0x05
+	mov lcd_y, tmp
 
+	LASZ day
+
+	sbrs refresh, 2
+	rjmp drw_dat_end	; если не надо обновить день, то и "автоматом" не надо обновить год, месяц и день недели
+
+	andi refresh, 0b11111011
+	mov lcd_x, tmp ; риусем число
 	ld tmp, Z
+
+	push bkg_color
+	push frg_color
+	cpi mode, 0x01
+	brne drw_dat_day
+	cpi mode_tmp, 0x03
+	brne drw_dat_day
+	mov bkg_color, tmp1
+	clr frg_color
+drw_dat_day:
 	rcall LCD_DrawBCD
-	ldi tmp, 8
-	add lcd_x, tmp
+	pop frg_color
+	pop bkg_color
+
+	push bkg_color
+	push frg_color
+	cpi mode, 0x01
+	brne drw_dat_dayw
+	cpi mode_tmp, 0x04
+	brne drw_dat_dayw
+	mov bkg_color, tmp1
+	clr frg_color
+drw_dat_dayw:
+	rcall LCD_DrawDayOfWeek
+	pop frg_color
+	pop bkg_color
+
+	ldi tmp, 0x05
+	mov lcd_y, tmp
+	LASZ day
+
+	sbrs refresh, 3
+	rjmp drw_dat_end
+
+	andi refresh, 0b11110111
+	ldi tmp, 0x05+(0x08*3)
+	mov lcd_x, tmp
 
 	adiw ZL, 0x01
 	ld tmp, Z+
@@ -719,30 +785,50 @@ LCD_DrawDate:
 	lsl tmp
 	push ZH
 	push ZL
-	ldi ZH, high(month_names<<1)
-	ldi ZL, low(month_names<<1)
+	LAPZ month_names
 	add ZL, tmp
 	ldi tmp, 0x00
 	adc ZH, tmp	; Z указывает на название месяца
+
+	push bkg_color
+	push frg_color
+	cpi mode, 0x01
+	brne drw_dat_mon
+	cpi mode_tmp, 0x05
+	brne drw_dat_mon
+	mov bkg_color, tmp1
+	clr frg_color
+drw_dat_mon:
 	rcall LCD_DrawStringPM
+	pop frg_color
+	pop bkg_color
 	pop ZL
 	pop ZH
-	ldi tmp, 0x08
-	add lcd_x, tmp
+
+	sbrs refresh, 4
+	rjmp drw_dat_end
+
+	andi refresh, 0b11101111
+	ldi tmp, 0x05+(0x08*7)
+	mov lcd_x, tmp
 	adiw ZL, 0x01
 	ld tmp, Z
+	push bkg_color
+	push frg_color
+	cpi mode, 0x01
+	brne drw_dat_year
+	cpi mode_tmp, 0x06
+	brne drw_dat_year
+	mov bkg_color, tmp1
+	clr frg_color
+drw_dat_year:
 	rcall LCD_DrawBCD
 	sbiw ZL, 0x01
 	ld tmp, Z
 	rcall LCD_DrawBCD
-
-	ldi tmp, 0x05
-	mov lcd_x, tmp
-	ldi tmp, 60
-	mov lcd_y, tmp
-
-	rcall LCD_DrawDayOfWeek
-
+	pop frg_color
+	pop bkg_color
+drw_dat_end:
 	pop tmp1
 	pop tmp
 	pop ZL
@@ -750,8 +836,20 @@ LCD_DrawDate:
 	ret
 ;--------------------
 LCD_DrawDayOfWeek:
+	push tmp1
 	LASZ day_of_week 	; Рисуем день недели
 	ld tmp, Z
+
+	clr tmp1
+	LAPZ week_day_center_coo
+	add ZL, tmp
+	adc ZH, tmp1
+	lpm tmp1, Z
+
+	mov lcd_x, tmp1
+	ldi tmp1, 60
+	mov lcd_y, tmp1
+
 	LAPZ week_day_table
 	lsl tmp
 	add ZL, tmp
@@ -762,6 +860,7 @@ LCD_DrawDayOfWeek:
 	mov ZL, tmp
 	mov ZH, tmp1
 	rcall LCD_DrawStringPM
+	pop tmp1
 	ret
 ;--------------------
 .include "Sie_c60.inc"	; Siemens C60 routines
@@ -775,42 +874,63 @@ month_len:
 
 ; Символьные константы
 month_names:
-	.db "Jan",0x00
-	.db "Feb",0x00
-	.db "Mar",0x00
-	.db "Apr",0x00
-	.db "May",0x00
-	.db "Jun",0x00
-	.db "Jul",0x00
-	.db "Aug",0x00
-	.db "Sep",0x00
-	.db "Oct",0x00
-	.db "Nov",0x00
-	.db "Dec",0x00
+;	.db "Jan",0x00
+;	.db "Feb",0x00
+;	.db "Mar",0x00
+;	.db "Apr",0x00
+;	.db "May",0x00
+;	.db "Jun",0x00
+;	.db "Jul",0x00
+;	.db "Aug",0x00
+;	.db "Sep",0x00
+;	.db "Oct",0x00
+;	.db "Nov",0x00
+;	.db "Dec",0x00
+
+	.db "ЯНВ",0x00
+	.db "ФЕВ",0x00
+	.db "МАР",0x00
+	.db "АПР",0x00
+	.db "МАЙ",0x00
+	.db "ИЮН",0x00
+	.db "ИЮЛ",0x00
+	.db "АВГ",0x00
+	.db "СЕН",0x00
+	.db "ОКТ",0x00
+	.db "НОЯ",0x00
+	.db "ДЕК",0x00
 
 week_day_names:
-mon:	.db "Monday",0x00
-tue:	.db "Tuesday",0x00
-wed:	.db "Wednesday",0x00
-thu:	.db "Thursday",0x00
-fri:	.db "Friday",0x00
-sat:	.db "Saturday",0x00
-sun:	.db "Sunday",0x00
+;mon:	.db "Monday",0x00
+;tue:	.db "Tuesday",0x00
+;wed:	.db "Wednesday",0x00
+;thu:	.db "Thursday",0x00
+;fri:	.db "Friday",0x00
+;sat:	.db "Saturday",0x00
+;sun:	.db "Sunday",0x00
+
+mon:	.db "ПОНЕДЕЛЬНИК",0x00
+tue:	.db "ВТОРНИК",0x00
+wed:	.db "СРЕДА",0x00
+thu:	.db "ЧЕТВЕРГ",0x00
+fri:	.db "ПЯТНИЦА",0x00
+sat:	.db "СУББОТА",0x00
+sun:	.db "ВОСКРЕСЕНИЕ",0x00
 
 week_day_table:
 	.dw mon<<1, tue<<1, wed<<1, thu<<1, fri<<1, sat<<1, sun<<1
 
 week_day_center_coo:
-; TODO
+	.db 6, 22, 30, 22, 22, 22, 6, 0x00
 
 corr_names:
-hr:	.db "HOUR:",0x00
-mn:	.db "MINUTE:",0x00
-sc:	.db "SECOND:",0x00
-dy:	.db "DAY:",0x00
-dow:	.db "DAY OF WEEK:",0x00
-mo:	.db "MONTH:",0x00
-yr:	.db "YEAR",0x00
+hr:	.db "ЧАС:",0x00
+mn:	.db "МИНУТА:",0x00
+sc:	.db "СЕКУНДА:",0x00
+dy:	.db "ЧИСЛО:",0x00
+dow:	.db "ДЕНЬ:",0x00
+mo:	.db "МЕСЯЦ:",0x00
+yr:	.db "ГОД",0x00
 
 corr_nam_table:
 	.dw hr<<1,mn<<1,sc<<1,dy<<1,dow<<1,mo<<1,yr<<1
@@ -821,8 +941,6 @@ corr_table:
 corr_max_value:
 	.dw 0x24, 0x60, 0x60, 0x00, 0x07, 0x12, 0x9999
 
-;calib_str:
-;	.db "calibration",0x00
 ;-------- Конец cseg
 
 .dseg ; Сегмент данных ОЗУ
