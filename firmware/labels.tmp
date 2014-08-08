@@ -54,10 +54,10 @@
   <wl2><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\init.inc</FILE><LINE>21</LINE></wl2>
   <wl0><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\init.inc</FILE><LINE>28</LINE></wl0>
   <wl1><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\init.inc</FILE><LINE>35</LINE></wl1>
-  <dsecond><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>906</LINE></dsecond>
-  <sec_duration><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>922</LINE></sec_duration>
+  <dsecond><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>911</LINE></dsecond>
+  <sec_duration><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>927</LINE></sec_duration>
   <LCD_C60_Init><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\Sie_c60.inc</FILE><LINE>292</LINE></LCD_C60_Init>
-  <LCD_Clear><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\Sie_c60.inc</FILE><LINE>590</LINE></LCD_Clear>
+  <LCD_Clear><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\Sie_c60.inc</FILE><LINE>522</LINE></LCD_Clear>
   <LCD_IdleOn><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\Sie_c60.inc</FILE><LINE>59</LINE></LCD_IdleOn>
   <main><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>63</LINE></main>
   <wtr><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>70</LINE></wtr>
@@ -92,8 +92,8 @@
   <hr_mn_mo><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>207</LINE></hr_mn_mo>
   <corr_max_value><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>898</LINE></corr_max_value>
   <Tmp_to_TCNT2><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>312</LINE></Tmp_to_TCNT2>
-  <sec_cnt><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>923</LINE></sec_cnt>
-  <month><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>911</LINE></month>
+  <sec_cnt><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>928</LINE></sec_cnt>
+  <month><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>916</LINE></month>
   <month_len><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>862</LINE></month_len>
   <day_cr1><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>254</LINE></day_cr1>
   <day_cr2><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>257</LINE></day_cr2>
@@ -109,23 +109,23 @@
   <kbd_end><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>410</LINE></kbd_end>
   <kbd_ret><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>417</LINE></kbd_ret>
   <drw_clk_minute_skip><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>465</LINE></drw_clk_minute_skip>
-  <hour><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>909</LINE></hour>
+  <hour><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>914</LINE></hour>
   <drw_clk_hrd><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>458</LINE></drw_clk_hrd>
   <Exch_bkg_frg><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\Sie_c60.inc</FILE><LINE>52</LINE></Exch_bkg_frg>
   <LCD_DrawBCD><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\Sie_c60.inc</FILE><LINE>79</LINE></LCD_DrawBCD>
   <LCD_DrawChar><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\Sie_c60.inc</FILE><LINE>186</LINE></LCD_DrawChar>
   <drw_clk_minute><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>468</LINE></drw_clk_minute>
   <drw_clk_sec_skip><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>488</LINE></drw_clk_sec_skip>
-  <minute><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>908</LINE></minute>
+  <minute><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>913</LINE></minute>
   <drw_clk_mnd><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>483</LINE></drw_clk_mnd>
   <drw_clk_sec><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>491</LINE></drw_clk_sec>
-  <second><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>907</LINE></second>
+  <second><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>912</LINE></second>
   <drw_clk_sed><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>507</LINE></drw_clk_sed>
   <tdi_cnt1><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>530</LINE></tdi_cnt1>
   <tdi_end><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>618</LINE></tdi_end>
   <tdi_cnt2><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>539</LINE></tdi_cnt2>
   <tdi_cnt3><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>549</LINE></tdi_cnt3>
-  <day_of_week><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>913</LINE></day_of_week>
+  <day_of_week><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>918</LINE></day_of_week>
   <tdi_cnt><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>572</LINE></tdi_cnt>
   <lsd_correct><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>642</LINE></lsd_correct>
   <msd><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>645</LINE></msd>
@@ -139,7 +139,7 @@
   <d100_w><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>698</LINE></d100_w>
   <delay_10ms><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>704</LINE></delay_10ms>
   <d10_w><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>707</LINE></d10_w>
-  <day><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>910</LINE></day>
+  <day><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>915</LINE></day>
   <drw_dat_end><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>821</LINE></drw_dat_end>
   <drw_dat_day><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>744</LINE></drw_dat_day>
   <drw_dat_dayw><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>756</LINE></drw_dat_dayw>
@@ -172,11 +172,15 @@
   <drw><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\Sie_c60.inc</FILE><LINE>237</LINE></drw>
   <mxdrw><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\Sie_c60.inc</FILE><LINE>239</LINE></mxdrw>
   <drw_chr_end><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\Sie_c60.inc</FILE><LINE>266</LINE></drw_chr_end>
-  <c60i_c1><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\Sie_c60.inc</FILE><LINE>299</LINE></c60i_c1>
-  <c60i_c2><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\Sie_c60.inc</FILE><LINE>317</LINE></c60i_c2>
-  <c60i_c3><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\Sie_c60.inc</FILE><LINE>437</LINE></c60i_c3>
-  <cclr><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\Sie_c60.inc</FILE><LINE>608</LINE></cclr>
-  <lclr><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\Sie_c60.inc</FILE><LINE>611</LINE></lclr>
+  <sie_c60_init><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>901</LINE></sie_c60_init>
+  <c60i_c1><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\Sie_c60.inc</FILE><LINE>300</LINE></c60i_c1>
+  <c60i_c2><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\Sie_c60.inc</FILE><LINE>318</LINE></c60i_c2>
+  <c60i_c3><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\Sie_c60.inc</FILE><LINE>346</LINE></c60i_c3>
+  <c60i_c4><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\Sie_c60.inc</FILE><LINE>372</LINE></c60i_c4>
+  <c60i_c5><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\Sie_c60.inc</FILE><LINE>406</LINE></c60i_c5>
+  <c60i_c6><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\Sie_c60.inc</FILE><LINE>454</LINE></c60i_c6>
+  <cclr><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\Sie_c60.inc</FILE><LINE>540</LINE></cclr>
+  <lclr><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\Sie_c60.inc</FILE><LINE>543</LINE></lclr>
   <week_day_names><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>880</LINE></week_day_names>
   <mon><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>881</LINE></mon>
   <tue><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>882</LINE></tue>
@@ -185,11 +189,11 @@
   <fri><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>885</LINE></fri>
   <sat><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>886</LINE></sat>
   <sun><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>887</LINE></sun>
-  <year><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>912</LINE></year>
-  <tim_ovf_val><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>915</LINE></tim_ovf_val>
-  <corr_period><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>918</LINE></corr_period>
-  <corr_per_cnt><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>919</LINE></corr_per_cnt>
-  <corr_value><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>920</LINE></corr_value>
-  <sec_dur_eep><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>929</LINE></sec_dur_eep>
+  <year><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>917</LINE></year>
+  <tim_ovf_val><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>920</LINE></tim_ovf_val>
+  <corr_period><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>923</LINE></corr_period>
+  <corr_per_cnt><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>924</LINE></corr_per_cnt>
+  <corr_value><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>925</LINE></corr_value>
+  <sec_dur_eep><FILE>F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm</FILE><LINE>934</LINE></sec_dur_eep>
  </LABELS>
 </ASSEMBLER_INFO>

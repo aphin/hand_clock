@@ -290,8 +290,9 @@ LCD_GotoXY:
 	ret
 ;--------------------
 LCD_C60_Init:
-	push tmp
-;; LCD RESET	
+;; LCD RESET
+	LAPZ sie_c60_init
+		
 	LCD_RESET_LOW
 	rcall delay_100ms
 	LCD_RESET_HIGH
@@ -341,20 +342,12 @@ c60i_c2:
 	ldi tmp, 0xB6
 	rcall Send_SPI
 	DATA_SET
-	ldi tmp, 0x80
+	ldi tmp1, 7
+c60i_c3:
+	lpm tmp, Z+
 	rcall Send_SPI
-	ldi tmp, 0x04
-	rcall Send_SPI
-	ldi tmp, 0x8A
-	rcall Send_SPI
-	ldi tmp, 0x54
-	rcall Send_SPI
-	ldi tmp, 0x45
-	rcall Send_SPI
-	ldi tmp, 0x52
-	rcall Send_SPI
-	ldi tmp, 0x43
-	rcall Send_SPI
+	dec tmp1
+	brne c60i_c3
 ;   Send_to_lcd(CMD,0xb3); //Gray scale position set 0
 ;   Send_to_lcd(DAT,0x02); //
 ;   Send_to_lcd(DAT,0x0a); //
@@ -375,36 +368,12 @@ c60i_c2:
 	ldi tmp, 0xb3
 	rcall Send_SPI
 	DATA_SET
-	ldi tmp, 0x02
+	ldi tmp1, 15
+c60i_c4:
+	lpm tmp, Z+
 	rcall Send_SPI
-	ldi tmp, 0x0a
-	rcall Send_SPI
-	ldi tmp, 0x15
-	rcall Send_SPI
-	ldi tmp, 0x1f
-	rcall Send_SPI
-	ldi tmp, 0x28
-	rcall Send_SPI
-	ldi tmp, 0x30
-	rcall Send_SPI
-	ldi tmp, 0x37
-	rcall Send_SPI
-	ldi tmp, 0x3F
-	rcall Send_SPI
-	ldi tmp, 0x47
-	rcall Send_SPI
-	ldi tmp, 0x4c
-	rcall Send_SPI
-	ldi tmp, 0x54
-	rcall Send_SPI
-	ldi tmp, 0x65
-	rcall Send_SPI
-	ldi tmp, 0x75
-	rcall Send_SPI
-	ldi tmp, 0x80
-	rcall Send_SPI
-	ldi tmp, 0x85
-	rcall Send_SPI
+	dec tmp1
+	brne c60i_c4
 ;   Send_to_lcd(CMD,0xb5); //Gamma curve
 ;   Send_to_lcd(DAT,0x01); //
 	CMD_SET
@@ -434,10 +403,10 @@ c60i_c2:
 	DATA_SET
 	ldi tmp, 0x00
 	ldi tmp1, 15
-c60i_c3:
+c60i_c5:
 	rcall Send_SPI
 	dec tmp1
-	brne c60i_c3
+	brne c60i_c5
 ;   Send_to_lcd(CMD,0xbd); //Common driver output select
 ;   Send_to_lcd(DAT,0x00); //
 	CMD_SET
@@ -454,7 +423,7 @@ c60i_c3:
 	DATA_SET
 	ldi tmp, 0b01001000
 	rcall Send_SPI
-;   Send_to_lcd(CMD,0x2d); //Colour set
+;   Send_to_lcd(CMD,0x2d); //Палитра
 ;   Send_to_lcd(DAT,0x00); //
 ;   Send_to_lcd(DAT,0x03); //
 ;   Send_to_lcd(DAT,0x05); //
@@ -477,52 +446,16 @@ c60i_c3:
 ;   Send_to_lcd(DAT,0x05); //
 ;   Send_to_lcd(DAT,0x0b); //
 ;   Send_to_lcd(DAT,0x0f); //
-	
 	CMD_SET
 	ldi tmp, 0x2D
 	rcall Send_SPI
 	DATA_SET
-	ldi tmp, 0x00
+	ldi tmp1, 8+8+4
+c60i_c6:
+	lpm tmp, Z+
 	rcall Send_SPI
-	ldi tmp, 0x03
-	rcall Send_SPI
-	ldi tmp, 0x05
-	rcall Send_SPI
-	ldi tmp, 0x07
-	rcall Send_SPI
-	ldi tmp, 0x09
-	rcall Send_SPI
-	ldi tmp, 0x0b
-	rcall Send_SPI
-	ldi tmp, 0x0d
-	rcall Send_SPI
-	ldi tmp, 0x0f
-	rcall Send_SPI
-	ldi tmp, 0x00
-	rcall Send_SPI
-	ldi tmp, 0x03
-	rcall Send_SPI
-	ldi tmp, 0x05
-	rcall Send_SPI
-	ldi tmp, 0x07
-	rcall Send_SPI
-	ldi tmp, 0x09
-	rcall Send_SPI
-	ldi tmp, 0x0b
-	rcall Send_SPI
-	ldi tmp, 0x0d
-	rcall Send_SPI
-	ldi tmp, 0x0f
-	rcall Send_SPI
-
-	ldi tmp, 0x00
-	rcall Send_SPI
-	ldi tmp, 0x05
-	rcall Send_SPI
-	ldi tmp, 0x0b
-	rcall Send_SPI
-	ldi tmp, 0x0f
-	rcall Send_SPI
+	dec tmp1
+	brne c60i_c6
 ;   Send_to_lcd(CMD,0xba); //Voltage control
 ;   Send_to_lcd(DAT,0x2f); //
 ;   Send_to_lcd(DAT,0x03); //
@@ -583,7 +516,6 @@ c60i_c3:
 	rcall Send_SPI
 
 	CS_HIGH
-	pop tmp
 	ret
 
 ;--------------------

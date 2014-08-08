@@ -1,5 +1,5 @@
 
-AVRASM ver. 2.1.42  F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm Fri Aug 08 00:24:10 2014
+AVRASM ver. 2.1.42  F:\Work\Hardware\HAND_CLOCK\firmware\clock.asm Fri Aug 08 09:32:26 2014
 
 
 EQU  SIGNATURE_000 0000001e
@@ -731,7 +731,7 @@ CSEG wl1          0000003a
 DSEG dsecond      00000100
 DSEG sec_duration 00000114
 CSEG LCD_C60_Init 000003ee
-CSEG LCD_Clear    000004d0
+CSEG LCD_Clear    0000048b
 CSEG LCD_IdleOn   0000032f
 CSEG main         0000009d
 CSEG wtr          000000a1
@@ -754,7 +754,7 @@ CSEG m_mdtmp_max_set 000000ea
 CSEG nx_b2_m1     000000f2
 CSEG nx_b2_cont   000000f7
 CSEG nx_b3_m1     0000013f
-CSEG corr_table   00000739
+CSEG corr_table   000006f4
 CSEG mt_offset    00000148
 CSEG val_dec      00000104
 CSEG BCD_Inc      00000271
@@ -764,11 +764,11 @@ CSEG sec_corr     0000011c
 CSEG day_corr     00000125
 CSEG no_corr      0000013e
 CSEG hr_mn_mo     0000010e
-CSEG corr_max_value 00000740
+CSEG corr_max_value 000006fb
 CSEG Tmp_to_TCNT2 00000150
 DSEG sec_cnt      00000115
 DSEG month        00000105
-CSEG month_len    000006f1
+CSEG month_len    000006ac
 CSEG day_cr1      0000013b
 CSEG day_cr2      0000013d
 CSEG nx_b_m2      00000147
@@ -818,12 +818,12 @@ CSEG drw_dat_end  000002e6
 CSEG drw_dat_day  000002a3
 CSEG drw_dat_dayw 000002ad
 CSEG LCD_DrawDayOfWeek 000002eb
-CSEG month_names  000006f7
+CSEG month_names  000006b2
 CSEG drw_dat_mon  000002cd
 CSEG LCD_DrawStringPM 0000035b
 CSEG drw_dat_year 000002e0
-CSEG week_day_center_coo 00000735
-CSEG week_day_table 0000072e
+CSEG week_day_center_coo 000006f0
+CSEG week_day_table 000006e9
 CSEG LCD_DrawBar  00000305
 CSEG dr_bar_col   0000030e
 CSEG LCD_GotoXY   000003d6
@@ -838,7 +838,7 @@ CSEG dr_b_lnibble 00000381
 CSEG dr_b09_1     00000389
 CSEG dr_b_end     0000038b
 CSEG LCD_DrawWord 0000038f
-CSEG font8x8      000004f1
+CSEG font8x8      000004ac
 CSEG cdrw         000003ac
 CSEG mydrw        000003ae
 CSEG ldrw         000003b7
@@ -846,19 +846,23 @@ CSEG drw_bkg      000003bb
 CSEG drw          000003bc
 CSEG mxdrw        000003bd
 CSEG drw_chr_end  000003d5
-CSEG c60i_c1      000003f5
-CSEG c60i_c2      00000402
-CSEG c60i_c3      00000459
-CSEG cclr         000004e2
-CSEG lclr         000004e4
-CSEG week_day_names 0000070f
-CSEG mon          0000070f
-CSEG tue          00000715
-CSEG wed          00000719
-CSEG thu          0000071c
-CSEG fri          00000720
-CSEG sat          00000724
-CSEG sun          00000728
+CSEG sie_c60_init 00000702
+CSEG c60i_c1      000003f6
+CSEG c60i_c2      00000403
+CSEG c60i_c3      00000419
+CSEG c60i_c4      00000424
+CSEG c60i_c5      00000438
+CSEG c60i_c6      00000452
+CSEG cclr         0000049d
+CSEG lclr         0000049f
+CSEG week_day_names 000006ca
+CSEG mon          000006ca
+CSEG tue          000006d0
+CSEG wed          000006d4
+CSEG thu          000006d7
+CSEG fri          000006db
+CSEG sat          000006df
+CSEG sun          000006e3
 DSEG year         00000106
 DSEG tim_ovf_val  00000109
 DSEG corr_period  0000010a
