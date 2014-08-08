@@ -72,7 +72,11 @@ wtr:
 	sbrc tmp, OCR2BUB
 	rjmp wtr
 
-
+; обработка звука
+	tst tmp2
+	brne m_cont
+	BEEP_OFF
+m_cont:
 	cpi mode, 0x00
 	brne m_mode1
 
@@ -108,6 +112,14 @@ m_mode1:
 m_mode2:				
 
 kbd_hand:
+; звук при нажатии на кнопки
+	mov tmp, kbd_press
+	ori tmp, 0b11000000
+	cpi tmp, 0xFF
+	breq kbd_hcont
+	BEEP_ON
+	ldi tmp2, 5
+kbd_hcont:
 	cpi mode, 0x00
 	brne m_kbd_mode1
 ; Обработчик кнопок режима 0
@@ -123,6 +135,7 @@ nx_b:
 	inc mode
 	rcall LCD_Clear
 	rcall LCD_IdleOff
+	ori refresh, 0b00011111
 	LED_ON
 nx_b1:
 	rjmp main
@@ -142,6 +155,7 @@ m_kbd_mode1_cont:
 nx_b_m1:	; Кнопки 4, 1 (средние слева и справа соответственно) - выбор редактируемой величины
 	sbrc kbd_press, 4
 	rjmp nx_b1_m1
+	ori refresh, 0b00011111
 	tst mode_tmp
 	breq m_mdtmp_max_set
 	dec mode_tmp
@@ -151,6 +165,7 @@ m_mdtmp_max_set:
 nx_b1_m1:
 	sbrc kbd_press, 1
 	rjmp nx_b2_m1
+	ori refresh, 0b00011111
 	inc mode_tmp
 	cpi mode_tmp, 0x07
 	brne nx_b2_m1
@@ -163,26 +178,7 @@ nx_b2_m1: ; Кнопки 0, 2 (справа верхняя и нижняя соответственно) - изменение выб
 	rjmp nx_b3_m1
 
 nx_b2_cont:
-; надо установить refresh для корректируемой величины
-	cpi mode_tmp, 0x02	; для секунд не устанавливаем
-	breq nx_b2_nrfrsh
-	cpi mode_tmp, 0x01
-	brne nx_b2_rfn
-	ori refresh, 0x01	; для минут
-	rjmp nx_b2_nrfrsh
-nx_b2_rfn:
-	cpi mode_tmp, 0x00
-	brne nx_b2_rfn1
-	ori refresh, 0x02	; для часов
-	rjmp nx_b2_nrfrsh
-nx_b2_rfn1:
-	cpi mode_tmp, 0x03
-	brne nx_b2_rfn2
-	ori refresh, 0x04	; для дней/дней недели
-	rjmp nx_b2_nrfrsh
-
-
-nx_b2_nrfrsh:
+	ori refresh, 0b00011111
 	LAPZ corr_table	; Таблица адресов корректируемых величин (для удобства)
 	rcall mt_offset
 
@@ -241,7 +237,6 @@ day_corr:
 	ld tmp, Z	; месяц
 	sbrc tmp, 4
 	subi tmp, 6	; в tmp номер месяца в binary
-	dec tmp
 	LAPZ month_len
 	add ZL, tmp
 	clr tmp
@@ -367,8 +362,10 @@ tc2_mode1:
 	nop
 
 t2_end:
+	tst tmp2
+	breq t2_out1
 	dec tmp2
-
+t2_out1:
 	pop ZL
 	pop ZH
 t2_out:
@@ -450,14 +447,14 @@ LCD_DrawTime:
 	andi refresh, 0b11111101
 	LASZ hour	; рисуем часы
 	ld tmp, Z
+	
 	push bkg_color
 	push frg_color
 	cpi mode, 0x01
 	brne drw_clk_hrd
 	cpi mode_tmp, 0x00
 	brne drw_clk_hrd
-	mov bkg_color, tmp1
-	clr frg_color
+	rcall Exch_bkg_frg
 drw_clk_hrd:
 	rcall LCD_DrawBCD
 	pop frg_color
@@ -482,8 +479,7 @@ drw_clk_minute:
 	brne drw_clk_mnd
 	cpi mode_tmp, 0x01
 	brne drw_clk_mnd
-	mov bkg_color, tmp1
-	clr frg_color
+	rcall Exch_bkg_frg
 drw_clk_mnd:
 	rcall LCD_DrawBCD
 	pop frg_color
@@ -507,8 +503,7 @@ drw_clk_sec:	; рисуем секунды
 	brne drw_clk_sed
 	cpi mode_tmp, 0x02
 	brne drw_clk_sed
-	mov bkg_color, tmp1
-	clr frg_color
+	rcall Exch_bkg_frg
 drw_clk_sed:
 	rcall LCD_DrawBCD
 	pop frg_color
@@ -745,8 +740,7 @@ LCD_DrawDate:
 	brne drw_dat_day
 	cpi mode_tmp, 0x03
 	brne drw_dat_day
-	mov bkg_color, tmp1
-	clr frg_color
+	rcall Exch_bkg_frg
 drw_dat_day:
 	rcall LCD_DrawBCD
 	pop frg_color
@@ -758,8 +752,7 @@ drw_dat_day:
 	brne drw_dat_dayw
 	cpi mode_tmp, 0x04
 	brne drw_dat_dayw
-	mov bkg_color, tmp1
-	clr frg_color
+	rcall Exch_bkg_frg
 drw_dat_dayw:
 	rcall LCD_DrawDayOfWeek
 	pop frg_color
@@ -780,7 +773,6 @@ drw_dat_dayw:
 	ld tmp, Z+
 	sbrc tmp, 4
 	subi tmp, 6	; в tmp номер месяца в binary
-	dec tmp
 	lsl tmp
 	lsl tmp
 	push ZH
@@ -796,8 +788,7 @@ drw_dat_dayw:
 	brne drw_dat_mon
 	cpi mode_tmp, 0x05
 	brne drw_dat_mon
-	mov bkg_color, tmp1
-	clr frg_color
+	rcall Exch_bkg_frg
 drw_dat_mon:
 	rcall LCD_DrawStringPM
 	pop frg_color
@@ -819,8 +810,7 @@ drw_dat_mon:
 	brne drw_dat_year
 	cpi mode_tmp, 0x06
 	brne drw_dat_year
-	mov bkg_color, tmp1
-	clr frg_color
+	rcall Exch_bkg_frg
 drw_dat_year:
 	rcall LCD_DrawBCD
 	sbiw ZL, 0x01
@@ -874,19 +864,6 @@ month_len:
 
 ; Символьные константы
 month_names:
-;	.db "Jan",0x00
-;	.db "Feb",0x00
-;	.db "Mar",0x00
-;	.db "Apr",0x00
-;	.db "May",0x00
-;	.db "Jun",0x00
-;	.db "Jul",0x00
-;	.db "Aug",0x00
-;	.db "Sep",0x00
-;	.db "Oct",0x00
-;	.db "Nov",0x00
-;	.db "Dec",0x00
-
 	.db "ЯНВ",0x00
 	.db "ФЕВ",0x00
 	.db "МАР",0x00
@@ -901,14 +878,6 @@ month_names:
 	.db "ДЕК",0x00
 
 week_day_names:
-;mon:	.db "Monday",0x00
-;tue:	.db "Tuesday",0x00
-;wed:	.db "Wednesday",0x00
-;thu:	.db "Thursday",0x00
-;fri:	.db "Friday",0x00
-;sat:	.db "Saturday",0x00
-;sun:	.db "Sunday",0x00
-
 mon:	.db "ПОНЕДЕЛЬНИК",0x00
 tue:	.db "ВТОРНИК",0x00
 wed:	.db "СРЕДА",0x00
@@ -922,18 +891,6 @@ week_day_table:
 
 week_day_center_coo:
 	.db 6, 22, 30, 22, 22, 22, 6, 0x00
-
-corr_names:
-hr:	.db "ЧАС:",0x00
-mn:	.db "МИНУТА:",0x00
-sc:	.db "СЕКУНДА:",0x00
-dy:	.db "ЧИСЛО:",0x00
-dow:	.db "ДЕНЬ:",0x00
-mo:	.db "МЕСЯЦ:",0x00
-yr:	.db "ГОД",0x00
-
-corr_nam_table:
-	.dw hr<<1,mn<<1,sc<<1,dy<<1,dow<<1,mo<<1,yr<<1
 
 corr_table:
 	.dw hour, minute, second, day, day_of_week, month, year

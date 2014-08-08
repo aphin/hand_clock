@@ -43,9 +43,9 @@ wl1:
 	ldi tmp, 0b00000111
 	out SMCR, tmp
 ;-------- Настраиваем порты
-	ldi tmp, 0b00000011	; PORTC - подтяжки включены, PC0, PC1 - на выход
+	ldi tmp, 0b00000111	; PORTC - подтяжки включены, PC0, PC1, PC2 - на выход
 	out DDRC, tmp
-	ldi tmp, 0b01111101
+	ldi tmp, 0b01111001	; PC2 - on/off для звука
 	out PORTC, tmp
 
 	ldi tmp, 0b00101011

@@ -99,4 +99,12 @@
 	ldi YH, high(@0)
 	ldi YL, low(@0)
 .endm
+.macro BEEP_ON
+	sbi PORTC, 2
+	nop
+.endm
+.macro BEEP_OFF
+	cbi PORTC, 2
+	nop
+.endm
 ;-------

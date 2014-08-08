@@ -44,18 +44,17 @@ dr_bar_line:
 ;--------------------
 LCD_DrawBkgBar:
 ; in: то же что и DrawBar
-	push tmp
-	mov tmp, frg_color
-	mov frg_color, bkg_color
-	mov bkg_color, tmp
-	pop tmp
+	rcall Exch_bkg_frg
 	rcall LCD_DrawBar
-	push tmp
-	mov tmp, frg_color
-	mov frg_color, bkg_color
-	mov bkg_color, tmp
-	pop tmp
+	rcall Exch_bkg_frg
 	ret
+;--------------------
+Exch_bkg_frg:
+	push bkg_color
+	push frg_color
+	pop bkg_color
+	pop frg_color
+	ret	
 ;--------------------
 LCD_IdleOn:
 	push tmp
@@ -296,11 +295,11 @@ LCD_C60_Init:
 	LCD_RESET_LOW
 	rcall delay_100ms
 	LCD_RESET_HIGH
+	ldi tmp, 0x05
+c60i_c1:
 	rcall delay_100ms
-	rcall delay_100ms
-	rcall delay_100ms
-	rcall delay_100ms
-	rcall delay_100ms
+	dec tmp
+	brne c60i_c1
 	CS_HIGH
 	rcall delay_10us
 	CS_LOW
@@ -314,11 +313,11 @@ LCD_C60_Init:
 	CMD_SET
 	ldi tmp, 0x01
 	rcall Send_SPI
+	ldi tmp, 0x05
+c60i_c2:
 	rcall delay_10ms
-	rcall delay_10ms
-	rcall delay_10ms
-	rcall delay_10ms
-	rcall delay_10ms
+	dec tmp
+	brne c60i_c2
 	ldi tmp, 0xC6
 	rcall Send_SPI
 	rcall delay_10ms
@@ -434,21 +433,11 @@ LCD_C60_Init:
 	rcall Send_SPI
 	DATA_SET
 	ldi tmp, 0x00
+	ldi tmp1, 15
+c60i_c3:
 	rcall Send_SPI
-	rcall Send_SPI
-	rcall Send_SPI
-	rcall Send_SPI
-	rcall Send_SPI
-	rcall Send_SPI
-	rcall Send_SPI
-	rcall Send_SPI
-	rcall Send_SPI
-	rcall Send_SPI
-	rcall Send_SPI
-	rcall Send_SPI
-	rcall Send_SPI
-	rcall Send_SPI
-	rcall Send_SPI
+	dec tmp1
+	brne c60i_c3
 ;   Send_to_lcd(CMD,0xbd); //Common driver output select
 ;   Send_to_lcd(DAT,0x00); //
 	CMD_SET
@@ -534,7 +523,6 @@ LCD_C60_Init:
 	rcall Send_SPI
 	ldi tmp, 0x0f
 	rcall Send_SPI
-
 ;   Send_to_lcd(CMD,0xba); //Voltage control
 ;   Send_to_lcd(DAT,0x2f); //
 ;   Send_to_lcd(DAT,0x03); //
