@@ -36,9 +36,19 @@ wl1:
 	lds tmp, ASSR
 	sbrc tmp, TCR2AUB			; Ждем, пока будет обновлен TCCR2A
 	rjmp wl1
-;-------- Отключаем не используемые модули (TWI, Timer0, Timer1, USART, ADC)
-	ldi tmp, 0b10101011
+;-------- Отключаем не используемые модули (TWI, Timer0, Timer1, USART)
+	ldi tmp, 0b10101010
 	sts PRR, tmp
+;-------- Настраиваем АЦП для измерения опоры относительно напряжения питания
+	ldi tmp, 0x00
+	sts ADCSRB, tmp
+	ldi tmp, 0b01101110	; В качестве опоры - питание на AVCC, в качестве источника для измерения - внутренняя опора 1.1В
+						; Данные выравнены влево (ADLAR=1)
+	sts ADMUX, tmp
+	ldi tmp, 0b10000001	; АЦП включен и работает на частоте 4МГц
+	sts ADCSRA, tmp
+	ldi tmp, 0x00
+	sts DIDR0, tmp
 ;-------- Настраиваем sleep режим (Power-save mode)
 	ldi tmp, 0b00000111
 	out SMCR, tmp
@@ -96,12 +106,10 @@ wl1:
 	mov kbd_release, tmp
 	ldi tmp, 0x00
 	out GPIOR0, tmp
-	out GPIOR1, tmp
 	ldi refresh, 0b00011111
 ;-------- Инициализируем значения в памяти
 	ldi tmp, 0x00
-	ldi ZH, high(dsecond)
-	ldi ZL, low(dsecond)
+	LASZ dsecond
 	st Z+, tmp
 	st Z+, tmp
 	ldi tmp, 0x38
@@ -118,27 +126,17 @@ wl1:
 	st Z+, tmp
 	ldi tmp, 0x02
 	st Z, tmp
-
-	ldi ZH, high(sec_duration)
-	ldi ZL, low(sec_duration)
-;	ldi tmp, sec_dur_eep
-
-;eep_w:
-;	sbic EECR, 1
-;	rjmp eep_w
-
-;	out EEARL, tmp
-;	sbi EECR, 0
-;	in tmp, EEDR
-	ldi tmp, TimCntVal	; в этом случае икремент времени будет происходить каждую 1/7 секунды (в теории)
+	LASZ timer_sec
+	ldi tmp, 0x00
+	st Z+, tmp
 	st Z, tmp
 
 	ldi tmp1, 0x05
 	mov lcd_x, tmp1
 	mov lcd_y, tmp1
-	ldi tmp1, 0xFF
+	ldi tmp1, cWhite
 	mov frg_color, tmp1
-	ldi tmp1, 0x00
+	ldi tmp1, cBlack
 	mov bkg_color, tmp1
 	ldi tmp1, 0x01
 	mov lcd_mx, tmp1
@@ -147,6 +145,5 @@ wl1:
 	sei
 
 	rcall LCD_C60_Init
-	CS_HIGH
 	rcall LCD_Clear
 	LED_OFF

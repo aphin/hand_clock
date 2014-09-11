@@ -1,53 +1,5 @@
 ; Siemens C60 display routines
 
-LCD_DrawBar:
-;in: lcd_x, lcd_y - координаты левого верхнего угла
-; tmp, tmp1 - ширина и высота
-	push tmp
-	push tmp1
-	push lcd_y
-	push r20
-	push r21
-
-	mov r20, tmp
-	mov r21, tmp1
-
-	CS_LOW
-dr_bar_col:
-	rcall LCD_GotoXY
-
-	CMD_SET
-	ldi tmp, 0x2C
-	rcall Send_SPI
-
-	DATA_SET
-	mov tmp, frg_color
-	push r20
-dr_bar_line:
-	rcall Send_SPI	
-	dec r20
-	brne dr_bar_line
-	pop r20
-
-	inc lcd_y
-	dec r21
-	brne dr_bar_col
-
-	CS_HIGH
-
-	pop r21
-	pop r20
-	pop lcd_y
-	pop tmp
-	pop tmp1
-	ret
-;--------------------
-LCD_DrawBkgBar:
-; in: то же что и DrawBar
-	rcall Exch_bkg_frg
-	rcall LCD_DrawBar
-	rcall Exch_bkg_frg
-	ret
 ;--------------------
 Exch_bkg_frg:
 	push bkg_color
@@ -80,26 +32,88 @@ LCD_DrawBCD:
 ;in: tmp - число
 	push tmp
 	push r20
+	push tmp1
 
+	cpi style, 0
+	brne dr_bcd1
+	ldi tmp1, 0x30
+	rjmp dr_bcd2
+dr_bcd1:
+	ldi tmp1, 0x61
+dr_bcd2:
 	mov r20, lcd_mx
 	lsl r20
 	lsl r20
 	lsl r20
 
 	push tmp
-	lsr tmp
-	lsr tmp
-	lsr tmp
-	lsr tmp
-	subi tmp, 0xD0 ; +0x30
+	swap tmp
+	andi tmp, 0x0F
+	add tmp, tmp1 ; +0x30
 	rcall LCD_DrawChar
 	add lcd_x, r20
 	pop tmp
 	andi tmp, 0x0F
-	subi tmp, 0xD0
+	add tmp, tmp1
 	rcall LCD_DrawChar
 	add lcd_x, r20
 
+	pop tmp1
+	pop r20
+	pop tmp
+	ret
+;--------------------
+LCD_DrawBCD7:	; рисует BCD число в стиле 7-ми сегментного индикатора
+; tmp - число
+	push tmp
+	push r20
+	push tmp1
+	push ZL
+	push ZH
+
+	mov r20, lcd_mx
+	lsl r20
+	lsl r20
+	lsl r20
+
+	ldi tmp1, 7
+	mul tmp1, lcd_my
+	mov tmp1, r0
+
+	LAPZ seg7_dig
+
+	push tmp
+	swap tmp
+	andi tmp, 0x0F
+	lsl tmp
+	add ZL, tmp
+	clr tmp
+	adc ZH, tmp
+	lpm tmp, Z+
+	rcall LCD_DrawChar
+	add lcd_y, tmp1
+	lpm tmp, Z
+	rcall LCD_DrawChar
+	pop tmp
+	add lcd_x, r20
+	sub lcd_y, tmp1
+	andi tmp, 0x0F
+	lsl tmp
+	LAPZ seg7_dig
+	add ZL, tmp
+	clr tmp
+	adc ZH, tmp
+	lpm tmp, Z+
+	rcall LCD_DrawChar
+	add lcd_y, tmp1
+	lpm tmp, Z
+	rcall LCD_DrawChar
+	add lcd_x, r20
+	sub lcd_y, tmp1
+		
+	pop ZH
+	pop ZL
+	pop tmp1
 	pop r20
 	pop tmp
 	ret
@@ -119,9 +133,14 @@ drst:
 	lpm tmp, Z+
 	tst tmp
 	breq drst_end
-	cpi tmp, 0x80
+	cpi tmp, 0x3A
 	brlo dr_ansi
-	subi tmp, 0x40	; ѕеревод из Win-1251 в CP866 дл€ заглавных букв (а других русских и нет тут :-)
+	cpi tmp, 'ј'
+	brlo dr_a_f
+	subi tmp, ('ј'-0x41)	; ѕеревод из Win-1251 в CP866 дл€ заглавных букв (а других русских и нет тут :-)
+	rjmp dr_ansi
+dr_a_f:
+	subi tmp, ('A'-0x3B)
 dr_ansi:
 	rcall LCD_DrawChar
 	add lcd_x, r20
@@ -148,7 +167,7 @@ LCD_DrawByte:
 	andi tmp, 0x0F
 	cpi tmp, 0x0A
 	brlo dr_b09
-	subi tmp, (0x100 - 'A' + 0x0A)
+	subi tmp, (0x100 - 0x3B + 0x0A)
 	rcall LCD_DrawChar
 	rjmp dr_b_lnibble
 dr_b09:
@@ -160,7 +179,7 @@ dr_b_lnibble:
 	andi tmp, 0x0F
 	cpi tmp, 0x0A
 	brlo dr_b09_1
-	subi tmp, (0x100 - 'A' + 0x0A)
+	subi tmp, (0x100 - 0x3B + 0x0A)
 	rcall LCD_DrawChar
 	rjmp dr_b_end
 dr_b09_1:
@@ -201,8 +220,7 @@ LCD_DrawChar:
 	push r20	; индекс по y
 	push r21	; индекс по x
 	
-	ldi ZH, high(font8x8<<1)
-	ldi ZL, low(font8x8<<1)
+	LAPZ font8x8
 	subi tmp, 0x20
 	clr tmp1 ; tmp1:tmp * 8
 	rol tmp
@@ -495,8 +513,8 @@ c60i_c6:
 	ldi tmp, 0x02
 	rcall Send_SPI
 	CMD_SET
-	ldi tmp, 0x21	// Inverse colors
-	rcall Send_SPI
+;	ldi tmp, 0x21	// Inverse colors
+;	rcall Send_SPI
 ;   Send_to_lcd(CMD,0x03); //Booster voltage ON
 ;   DelayMs(40);
 	ldi tmp, 0x03
@@ -524,6 +542,7 @@ LCD_Clear:
 	push tmp1	
 	push lcd_x
 	push lcd_y
+
 	CS_LOW
 	clr tmp
 	mov lcd_x, tmp
@@ -549,6 +568,7 @@ lclr:
 	brne cclr
 
 	CS_HIGH
+
 	pop lcd_y
 	pop lcd_x
 	pop tmp1
