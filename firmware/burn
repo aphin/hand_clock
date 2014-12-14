@@ -1,3 +1,0 @@
-#! /bin/bash
-
-sudo avrdude -p m48 -c usbtiny -U flash:w:clock.hex:i 

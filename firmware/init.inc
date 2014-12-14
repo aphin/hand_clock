@@ -36,9 +36,6 @@ wl1:
 	lds tmp, ASSR
 	sbrc tmp, TCR2AUB			; Ждем, пока будет обновлен TCCR2A
 	rjmp wl1
-;-------- Отключаем не используемые модули (TWI, Timer0, Timer1, USART)
-	ldi tmp, 0b10101010
-	sts PRR, tmp
 ;-------- Настраиваем АЦП для измерения опоры относительно напряжения питания
 	ldi tmp, 0x00
 	sts ADCSRB, tmp
@@ -131,19 +128,35 @@ wl1:
 	st Z+, tmp
 	st Z, tmp
 
-	ldi tmp1, 0x05
-	mov lcd_x, tmp1
-	mov lcd_y, tmp1
-	ldi tmp1, cWhite
-	mov frg_color, tmp1
-	ldi tmp1, cBlack
-	mov bkg_color, tmp1
-	ldi tmp1, 0x01
-	mov lcd_mx, tmp1
-	mov lcd_my, tmp1
+	LAPZ month_len
+	ldi YL, low(month_len_ram)
+	ldi YH, high(month_len_ram)
+	ldi tmp, 12
+mlen_cp:
+	lpm tmp1, Z+
+	st Y+, tmp1
+	dec tmp
+	brne mlen_cp
+
+;-------- Инициализируем UART для звука
+	ldi tmp, 0x00
+	sts UBRR0H, tmp
+	ldi tmp, 0x33
+	sts UBRR0L, tmp
+	ldi tmp, 0b01001000
+	sts UCSR0B, tmp
+	ldi tmp, 0b00000110
+	sts UCSR0C, tmp
+
+;-------- Отключаем не используемые модули (TWI, Timer0, Timer1, USART)
+	ldi tmp, 0b10101010
+	sts PRR, tmp
 
 	sei
 
-	rcall LCD_C60_Init
+	rcall LCD_A70_Init
 	rcall LCD_Clear
 	LED_OFF
+	
+	LAPZ music
+	rcall play_music
